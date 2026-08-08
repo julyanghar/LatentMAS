@@ -1,5 +1,6 @@
 # 11 · 三条 baseline 血统 2026 年 8 月全量调研——过时了吗、撞车了吗、该换谁
 
+> **2026-08-08 深夜更新**：项目状态段按全自产口径重写（原则见 [12-self-produced-caliber-replan](12-self-produced-caliber-replan.md)）；文献部分未动。
 > 缘起：用户两问——(1) 我们是否还在"给定视觉 agentic workflow 里测 baseline→找问题→改进"这条路上；(2) LatentMAS / Coconut / CIPHER 三个 baseline 是否过时、后续工作长什么样。
 > 方法：9 个检索 agent、206 次网络检索、六个角度并行扫 2025-01 至 2026-08 文献 + 查漏批评员补两轮，共筛得 112 条、去重后约 70 篇。**证据等级注记：全部数字来自 abstract 页抓取（非全文核验），标 ⚠ 的条目连 abstract 都未直接抓到、仅来自搜索摘要——写 related work 前必须全文重核。**
 > 读法：赶时间只读 §0 判决 + §6 必读清单。§1–§5 按"血统现状 → 领域大势 → 撞车地图 → 头名主张改口 → 可借配方"展开。
@@ -8,7 +9,7 @@
 
 ## §0 五句话判决
 
-1. **方向没偏，且已多走一步**：三 baseline 里 2.5 个已在本 workflow 内测完并判阴（P2 战役，见 [10-all-arms-atlas-explained](10-all-arms-atlas-explained.md)），"找出的问题"=免训练 latent 通信全线无红利、唯一显著红利是感知行像素；当前 pixel-dividend-30b 是改进（B 臂 adapter）动工前的动机钉死，不是偏航。
+1. **方向没偏，且已多走一步**：三 baseline 里 2.5 个已在本 workflow 内测完并判阴（P2 战役，全自产口径，见 [10-all-arms-atlas-explained](10-all-arms-atlas-explained.md)），"找出的问题"=免训练 latent 通信全线无红利、唯一显著红利是感知行像素；当前 pixel-dividend-30b 已按**全自产口径**重构（主线 T₃₀ˢ/D₃₀ˢ/C₃₀ˢ，地图与摘要全部由在役模型自产——latent 可操作空间的硬要求，见 doc12；现成材料格降为参照/诊断），是 B 臂动工前的动机钉死，不是偏航。
 2. **LatentMAS 没过时，反而升舱了**：ICML 2026 Spotlight（v4 2026-08-03 刚更新），仍是免训练派头牌——但它自己声明"同构模型限定、异构需可训 adapter"，**这句话就是我们 B 臂的立项引文**。
 3. **Coconut 在自家血统内被取代**（RL 训练系 Latent-GRPO/SofT-GRPO/SWITCH 上位），**CIPHER 绝后**（2026 综述确认它仍是嵌入消息辩论的独苗、无直接后继）——我们的 CIPHER 阴性判决没有任何已发表工作能推翻，反而有了机制解释（Greedy Pitfall）。
 4. **领域一年内整体从"免训练注入"转向"训练小桥"**（C2C→LCF→MoT→Interlat→Vision Wormhole），正撞我们 B 臂方向；**"VLM 视觉证据→纯文本 LLM 验证员 + 接收方决定看什么"这个格子截至 2026-08 仍空**，但四面墙都在逼近，其中 MACF（视频×latent×多 agent）必须全文核验。
@@ -74,7 +75,7 @@
 | [VideoSEAL](https://arxiv.org/abs/2605.12571)（ICML 2026） | agentic 视频 QA+"caption 轨迹不可信、须像素级验证"——**离我们头名结论最近** | 验证员是 MLLM 而非桥接的文本 LLM、无 latent 信道 |
 | [Temporal CoT](https://arxiv.org/abs/2507.02001)（NeurIPS 2025）/ [WorldMM](https://arxiv.org/abs/2512.02425)（CVPR 2026） | "接收方决定看什么"已单独存在 | 都在单模型/多模态模型内部，无跨模型边界 |
 
-**先例审计更新**（对照 [01-prior-art-audit](01-prior-art-audit.md)）：当年判决"真空只剩'发送方是 agent'+'接收方决定看什么'"在 2026-08 仍成立，但两条都从"空地"变成了"交集地"——单独哪条都有人做过，**只有六要素交集没人占**。novelty 段写法必须从"没人做过 X"改成"没人在 agentic 视频证据链上同时做到 X∧Y∧Z"。
+**先例审计更新**（对照先例审计判决，原文档已入 TRASH，判决记录见 memory 与 doc08）：当年判决"真空只剩'发送方是 agent'+'接收方决定看什么'"在 2026-08 仍成立，但两条都从"空地"变成了"交集地"——单独哪条都有人做过，**只有六要素交集没人占**。novelty 段写法必须从"没人做过 X"改成"没人在 agentic 视频证据链上同时做到 X∧Y∧Z"。
 
 ---
 
@@ -84,7 +85,7 @@
 
 1. **同款量化已发表**：[CaptionQA](https://arxiv.org/abs/2511.21025)（图像域：换 caption 掉最多 32%）、[ViSIL](https://arxiv.org/abs/2601.09851)（视频域信息论框架：关键帧摘要比文字摘要 +7% VQA）、[RAVEN](https://arxiv.org/abs/2606.25206)（机器人域直接说"避开有损的图转文"）。→ "caption 有损"不能再当发现讲。
 2. **反向结果活着**：[Vamos](https://arxiv.org/abs/2311.13627)（ECCV 2024：caption 够用、视觉嵌入几乎无增益）+ 同组 [ObjectMLLM](https://arxiv.org/abs/2504.07454)（ICCV 2025：结构化对象信息转纯文本反而最强）。→ 评委必拿这两篇打我们，**须解释我们何以反转**：他们是"整段视频→固定表征→单读者"，我们是"验证员按假设定向索证"的工作流内测法——信息需求是 query 条件化的，caption 恰恰在长尾细节上丢分（与 [GEASS](https://arxiv.org/abs/2605.01733) 的"caption 帮全局题、害细节题"发现互证）。
-3. **caption 臂强度要求被抬高**：[SiLVR](https://arxiv.org/abs/2505.24869)（TMLR：纯 caption+字幕在长视频 benchmark 屠榜）、[LVNet](https://arxiv.org/abs/2406.09396)（问题条件化选帧再 caption）、[Nar-KFC](https://arxiv.org/abs/2505.24158)（ICLR 2026：关键帧+叙事混合）。→ 若 D 臂 caption 不到 SiLVR 强度，评委一句"你 caption 太弱"就能泄掉 +6.0。**反驳弹药已在手**：探针战役证明书的来源（LaViLa vs 我们的书）对 8B 严格 0.0 分差、[CapQuiz](https://aclanthology.org/2026.acl-long.777/)（ACL 2026）提供 caption 质量的 QA 效用认证法。
+3. **caption 臂强度要求被抬高**：[SiLVR](https://arxiv.org/abs/2505.24869)（TMLR：纯 caption+字幕在长视频 benchmark 屠榜）、[LVNet](https://arxiv.org/abs/2406.09396)（问题条件化选帧再 caption）、[Nar-KFC](https://arxiv.org/abs/2505.24158)（ICLR 2026：关键帧+叙事混合）。→ 若 D 臂 caption 不到 SiLVR 强度，评委一句"你 caption 太弱"就能泄掉 +6.0。**反驳弹药（全自产口径版）**：D 臂 caption=在役 VL-30B 自写（自家文体最强形态，主动排除"caption 摆弱"指控）+ 30B 战役 AB1/AB2 书源诊断格实测回应；[CapQuiz](https://aclanthology.org/2026.acl-long.777/)（ACL 2026）提供 caption 质量的 QA 效用认证法可再加一层。
 4. **语言先验混淆**：[MVU](https://arxiv.org/abs/2403.16998)（ICLR 2025：长视频 benchmark 不看视频也能拿高分）。→ 需要一条"无证据盲臂"对照佐证 +6.0 确实来自视觉证据（我们的 A/D/C 差分设计部分免疫此问题，但明写更稳）。
 
 **存活的头名主张**（收窄后反而更硬）：*首个在真实 agentic 视频 QA 工作流内、同内容同读者、逐题配对（McNemar）的 caption-vs-像素受控归因；并给出免训练 latent 全谱系（概率/软 token/隐状态注入）的同工作流阴性对照。* ——这个测法确实没人做过（scoop-check 角度明确确认"无人在 agent 环内跑过同内容 frames-vs-captions 受控对比"）。
@@ -112,10 +113,10 @@
 - **B 臂论文的对比表新面孔**（按必要性排序）：
   1. 免训练 latent 对照：**官方 LatentMAS**（Gen-Verse 代码替代我们的复现）＋可选 [Communicating Activations](https://arxiv.org/abs/2501.14082)；
   2. 训练信道对照：**C2C 或 LCF** 适配进 workflow（LCF 更合身——我们的发送方/接收方本来就不同上下文）；
-  3. 强 caption 臂：现有 D 臂 + SiLVR 式增强（至少论述层面对齐）；
+  3. 强 caption 臂：D₃₀ˢ（在役 VL-30B 自写书+同源摘要₂，全自产最强文字形态）+ SiLVR 式增强（论述层面对齐）；
   4. 单模型视频 latent：**DyLaR**（引用+概念对比即可，跑不跑看篇幅）；
   5. 混合臂：Nar-KFC 式"关键帧+文字"免训练混合——**若 B 臂赢不了这个免训练混合，训练就白费**，这是最诚实的下界。
-- **Host 系统彩蛋**：我们的宿主 VideoHV-Agent（[04-host-frameworks-explained](04-host-frameworks-explained.md) §2）已发表为 **CVPR 2026**（[Think, Then Verify](https://arxiv.org/abs/2603.04977)）。好消息：宿主从"GitHub 项目"升级成同行评审系统，实验平台可信度+1；待办：核对 camera-ready 与我们移植的 GitHub 版有无协议差异，并正式引用。
+- **Host 系统彩蛋**：我们的宿主 VideoHV-Agent（host 框架文档已入 TRASH）已发表为 **CVPR 2026**（[Think, Then Verify](https://arxiv.org/abs/2603.04977)）。好消息：宿主从"GitHub 项目"升级成同行评审系统，实验平台可信度+1；待办：核对 camera-ready 与我们移植的 GitHub 版有无协议差异，并正式引用。
 
 ### 5.2 B 臂训练配方货架（全部可抄）
 
@@ -144,4 +145,4 @@
 
 **检索盲区（诚实记录）**：全程搜索引擎级检索，未爬 Semantic Scholar 引文图——LatentMAS/CIPHER 2026-06 之后的低调直接后继可能漏网；非 arXiv 的 venue-only 论文覆盖不全；多数 venue 标注未经 camera-ready 核实。约每季度值得重扫一次撞车角度（§3 那张表的六要素查询串可复用）。
 
-**与 memory 的对账**：[01-prior-art-audit](01-prior-art-audit.md) 的 NavGPT-2/Sterner 判决不变；"接收方决定看什么"的负结果先例（SR 67.52→21.46）仍在，但 Temporal CoT/WorldMM 证明该机制在 2025-2026 已有正结果实现——负结果先例的杀伤力下降，须改为"实现路线敏感"表述。
+**与 memory 的对账**：先例审计（已入 TRASH）的 NavGPT-2/Sterner 判决不变；"接收方决定看什么"的负结果先例（SR 67.52→21.46）仍在，但 Temporal CoT/WorldMM 证明该机制在 2025-2026 已有正结果实现——负结果先例的杀伤力下降，须改为"实现路线敏感"表述。

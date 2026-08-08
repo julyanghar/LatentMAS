@@ -1,0 +1,1144 @@
+Beyond the Single Camera: Agentic Multi-View Reasoning
+in Sports Video Understanding
+Kerui Chen1∗ , Jinglu Wang2, Xiaoyi Zhang2, Yan Lu2†
+1Zhejiang University2Microsoft Research Asia
+Abstract
+Recent Multimodal Large Language Models (MLLMs)
+achievestrongperformanceonsingle-viewvideounderstand-
+ingbenchmarks.However,sportsvideosinvolvedenseocclu-
+sion, rapid motion, and complex interactions that are difficult
+to resolve from a single viewpoint. In practice, sports events
+arerecordedfrommultiplecameraangles,providingcomple-
+mentaryevidenceusedbyreferees.Yet,noexistingbenchmark
+evaluatesMLLMsonmulti-viewsportsvideounderstanding.
+To address this gap, we introduceSportMV-Bench, a com-
+prehensive benchmark built from official match recordings,
+through a dedicated pipeline combining LLM-based genera-
+tion,MLLM-basedverification,andhumanfilteringtoensure
+qualityandconsistency.SportMV-Benchcontains1022multi-
+viewvideobundlesand3015question-answerpairsspanning
+10sportsacrossthreecategories:Perception-AwareRecogni-
+tion (PAR), Rule Event aware Interpretation (REI), and Ad-
+judicative Decision Reasoning (ADR). Our analysis shows
+that current MLLMs fail to effectively exploit multi-view in-
+formation, with the bottlenecks lying in fine-grained visual
+perceptionandviewselectionratherthanlogicalreasoningor
+domain knowledge. We proposeSportMV-Agent, an agentic
+framework that orchestrates an iterative loop of active view
+selection, perception tool execution, and evidence-grounded
+reasoning, achieving a significant 15.61% relative improve-
+ment over the strongest MLLM baseline.
+Introduction
+Sports video understanding has received significant atten-
+tionduetoitswideapplicationsinanalytics(Mackenzieand
+Cushion 2013), coaching (Groom and Nelson 2013), offi-
+ciating support (Held et al. 2024b,a), content retrieval (Yu
+etal.2003),andaudienceengagement(Midogluetal.2024).
+Recent Multimodal Large Language Models (MLLMs) (Bai
+et al. 2025; Team et al. 2024; a20 2025; Li et al. 2024a;
+Chen et al. 2026) demonstrate strong capabilities in video
+understanding and reasoning, making them promising for
+sports video analysis. However, sports videos pose unique
+challenges for MLLMs, such as rapid movements, dense
+player interactions, domain-specific rules, and the need for
+fine-grained subtle visual cues. Several benchmarks have
+been developed to study sports video understanding, such
+as SoccerNet (Giancola et al. 2018), Sports-QA (Li et al.
+2024b), and multi-sport datasets (Xia et al. 2025, 2024).
+While these benchmarks advance holistic understanding of
+∗This work was done when K. Chen was an intern at Microsoft
+Research Asia.
+†Corresponding author.
+Figure1:Importanceofmulti-viewperspectivesinsports
+understanding.(a) Single views (View 1 & 2) can yield
+incorrect judgments (Player #7 out) due to occlusion, while
+amoreinformativeview(View 3)revealsthecorrectresult
+(Player #23 out). (b) Accurate decisions require aggregating
+complementary evidence from multiple views to resolve vi-
+sual ambiguities: the attacker fouls an opponent (View 1)
+withouttouchingtheball(View 2),awardingthedefensive
+team a free kick.
+broadcast videos, they typically assume that a single camera
+view provides sufficient evidence for question answering.
+In real-world, sports events are captured from multiple
+viewpointstoprovideacompleteperspectiveforrefereesand
+audiences.Occlusioniscommoninsports:playersoftenclus-
+terarounddecisivemoments,makingcriticalactionshardto
+observefromasingleview.Moreover,athletesmayintention-
+allyobscureeventsthroughexaggeratedcontactorsimulated
+falls, making single-view evidence not only incomplete but
+sometimesmisleading.AsillustratedinFig.1(a),usingonly
+View 1orView 2leads to an incorrect out-of-bounds
+decision because the decisive touch is occluded, while in-
+corporatingView 3reveals the correct outcome. Beyond
+occlusion, some queries require combining complementary
+evidence across views that may even appear conflicting. For
+example, in Fig. 1(b),View 1localizes contact inside the
+penaltyarea,whileView 2showsthatthedefenderdidnot
+touch the ball. Only by combining both views can the cor-
+rect decision be made: a yellow card to attacker, and award
+opponents a defensive free kick rather than a penalty. These
+examples highlight the importance of multi-view reasoning
+for sports video understanding. Professional officiating sys-
+tems such as VAR, Instant Replay, and Hawk-Eye already
+rely on multi-camera setups for this reason. However, ex-
+arXiv:2607.11844v2  [cs.CV]  4 Aug 2026
+isting sports QA benchmarks do not evaluate the ability of
+MLLMs to reason across multiple views of the same event,
+as they provide only single-view inputs.
+To fill this gap, we introduceSportMV-Bench, the first
+benchmark for multi-view sports video understanding. It
+spans 10 different sports and comprises 1022 multi-view
+video bundles (each with 2-5 diverse and asynchronous
+views) and 3015 QA pairs across three reasoning levels:
+Perception-Aware Recognition (PAR), Rule Event aware In-
+terpretation (REI), and Adjudicative Decision Reasoning
+(ADR). All videos are sourced from official public match
+recordings to ensure real-world authenticity. QA pairs are
+constructed through a four-stage pipeline combining auto-
+matic generation, multimodal verification and human veri-
+fication to ensure correctness, consistency with the videos,
+and visual answerability.
+Through extensive experiments and analysis, we find that
+currentMLLMsperformpoorlyandfailtoexploitmulti-view
+information effectively. Providing all views jointly improves
+only0.9pointsoverarandomsingleview,whereasanchoring
+an oracle view yields a 13.4% relative gain, indicating that
+decisiveevidenceexistsacrossviewsbutcurrentmodelsfail
+toextractit.Moreover,providingannotatedperceptionlabels
+improvesaccuracyby+21.72points,highlightingthecritical
+role of fine-grained perception in overall performance. We
+also observe that chain-of-thought reasoningdegradesper-
+formance, and textual domain-specific knowledge provides
+little improvement. These findings suggest that the primary
+bottleneckliesnotinlogicalreasoningordomainknowledge,
+but in visual perception.
+Motivatedbythesefindings,weproposeSportMV-Agent,
+an agentic multi-view reasoning framework. An orchestra-
+tor coordinates an iterative loop of evidence collection and
+evidence-groundedreasoning:itactivelyselectsinformative
+views, invokes perception tools to extract fine-grained evi-
+dence, and accumulates findings until sufficient confidence
+is reached. Compared to the baseline (GPT-4.1), SportMV-
+Agent improves the overall performance from 59.12% to
+68.35%, a relative gain of15.61%.
+To sum up, our contributions are as follows:
+•We presentSportMV-Bench, the first multi-view
+sports video understanding benchmark, consisting of
+1022multi-viewvideobundlesand3015QApairsacross
+three reasoning levels (PAR, REI, ADR).
+•We conduct a comprehensive empirical study revealing
+that current MLLMs fail to exploit multi-view evidence,
+with the bottleneck in visual perception and view selec-
+tion rather than logical reasoning or domain knowledge.
+•We proposeSportMV-Agent, an agentic framework
+whoseorchestratorcoordinatesactiveviewselection,per-
+ceptiontoolexecution,andevidence-groundedreasoning,
+with design directly motivated by the empirical findings.
+Related Work
+Sports understanding benchmarks.Early sports under-
+standing datasets primarily focused on action classification
+oractionqualityassessmentinspecificsportslikesoccer(Gi-
+ancolaetal.2018),basketball(Xuetal.2024),diving(Li,Li,
+and Vasconcelos 2018), gymnastics (Shao et al. 2020a) and
+figure skating (Liu et al. 2020). Later datasets expanded the
+taskfromsimpleactionclassificationtotemporalactionpars-
+ing (Shao et al. 2020b; Liu et al. 2021) and spatio-temporal
+localization (Xu et al. 2024), and also introduced a wider
+variety of sports categories (Li et al. 2021).
+With the advent of MLLMs (Liu et al. 2024; Fang et al.
+2024;Fuetal.2025b,a;Yueetal.2024),question-answering
+(QA)benchmarksemergedasthestandardparadigmforeval-
+uatingmultimodalunderstandinginsportsscenarios.Single-
+sport datasets include SoccerNet-X Foul (Held et al. 2023)
+and SoccerBench (Rao et al. 2025) for recognition in soc-
+cer, FSBench (Gao et al. 2025) for scoring in figure skating,
+and FineBadminton (He et al. 2025) for rally-level under-
+standing in badminton. Other datasets like Sports-QA (Li
+et al. 2024b), SPORTU (Xia et al. 2024) and SPORTR (Xia
+et al. 2025) extend evaluation to multiple sports, incorporat-
+ing higher-level reasoning over rules and tactics. However,
+these benchmarks typically offer a single-view video input,
+which cannot simulate or evaluate realistic scenarios where
+occlusions in one viewpoint necessitate joint reasoning over
+multiple views.
+Sports understanding methods.Early approaches cast
+sports understanding as a classification or regression task,
+focusing on action recognition (Shao et al. 2020a; Li et al.
+2021),foulclassification(Heldetal.2024b),andactionqual-
+ity assessment (Gao et al. 2025; Li, Li, and Vasconcelos
+2018; Parmar and Morris 2019). With the development of
+MLLMs, recent state-of-the-art models such as Qwen fami-
+lies (Bai et al. 2025; Wang et al. 2024), GPT families (Jaech
+et al. 2024; Hurst et al. 2024a), and Gemini families (Team
+et al. 2024, 2023) show remarkable general capabilities in
+sports videos. Many existing efforts treat them as a unified
+toolfortacticalanalysis(CaronandMüller2023;Zhangetal.
+2025)andrule-basedreasoning(Heldetal.2024c).However,
+theseapproachestypicallyoperateonasingleviewpointand
+assume that all information required to answer the question
+is fully contained within that view. This assumption sim-
+plifies the problem compared to real-world sports scenarios,
+wherekeyevidenceisoftendistributedacrossmultipleviews
+and individualcamera angles maysuffer from occlusion.As
+a result, the capabilities of MLLMs in realistic multi-view
+settings remain largely untested and underexplored, which
+motivates our evaluation of MLLMs on multi-view sports
+video understanding.
+Sport-MV Benchmark
+In this section, we presentSportMV-Bench, a benchmark
+for multi-view sports video understanding designed to eval-
+uatethecapabilitiesofMLLMsinmulti-viewscenarios.We
+detailitsproblemformulation,dataconstructionpipelineand
+resulting data statistics.
+Problemformulation.Weconsiderthetaskofmulti-view
+sports video understanding. LetV={V 1, V2, . . . , VN }de-
+noteNvideoscapturingthesamesportseventfromdifferent
+camera viewpoints, which may not be temporally synchro-
+nized. Given a natural-language questionq, the goal is to
+inferthecorrectanswerabyaggregatingevidenceacrossthe
+Figure2:OverviewofSportMV-Bench.(a)Thebenchmark
+comprisestensportscategoriesandthreetypesofquestions,
+each designed to evaluate a different aspect of sports under-
+stading. (b) A real-match multi-view video example with its
+corresponding three types.
+multi-view videos.
+Dataset Construction
+To construct a reliable and semantically rich QA corpus, we
+design a pipeline leveraging LLMs and MLLMs, as illus-
+trated in Figure 3, which comprises four stages: data col-
+lection,LLM-BasedQAgeneration,multimodalverification
+and authoritative human annotations.
+Stage1:Datacollection.Wecollectvideosourcesandtheir
+correspondingofficialrefereeingdecisionsfrompublicvideo
+platforms. To ensure sport diversity, SportMV-Bench spans
+tensports:basketball,soccer,cricket,rugby,Americanfoot-
+ball, ice hockey, baseball, tennis, volleyball and Australian
+football. These sports jointly feature both global and local
+viewpoints,exhibitsignificantdiversityacrosscameraangles
+and scenes, and involve frequent occlusions with complex
+playerinteractions.Acrossallsources,wedeliberatelyprior-
+itizecontestedandchallengeplaystomaximizedifficulty.To
+obtainmulti-viewobservationsofthesameevent,weemploy
+a three-stage pipeline comprising viewpoint-change detec-
+tion withPySceneDetect, content and quality filtering using
+a vision-language model, and viewpoint clustering based on
+DINOv2(Oquabetal.2024)features.Afterstage1,foreach
+data instance, we obtain a multi-view video setVand its
+associated referee reportR. Notably, these views are not
+temporally synchronized, further increasing difficulty by re-
+quiring cross-view alignment. More details are provided in
+the supplementary material.
+Stage 2: LLM-Based QA proposal.Conditioning an
+MLLM directly on the multi-view clips for QA synthesis
+tends to produce hallucinated or redundant questions an-
+chored to salient but non-decisive content. We therefore
+ground QA generation in the referee report, an authorita-
+tive event-level answer source. Specifically, we prompt an
+LLM to act as a referee certification exam setter. For each
+report, the LLM proposes multiple-choice questions strictly
+grounded in the report text, with a gold answer extracted
+verbatim. The stem is anonymized (no team, player, or date
+names) to prevent the answer from leaking through surface
+cues. Distractors must share the same semantic type as the
+gold answer and be minimally contrasting variants drawn
+from non-deciding details, preventing shortcuts based on
+type mismatch. The prompt forbids external knowledge and
+hallucinated entities, and enforces a fixed JSON output con-
+tainingthequestion,options,andgoldanswer,denotedasthe
+tuple(q,A, a ∗).Eachsynthesizeditemislinkedtoitscorre-
+sponding multi-view clips for later multimodal verification.
+Stage3:Multimodalverification.Despitetheconstraintsin
+Stage2,somesynthesizeditemsstilldeviatefromthereferee
+report,areanswerablebycommonsensealone,areunrelated
+to the video, or lack sufficient visual evidence. We therefore
+employ a strong MLLM (GPT-5 (a20 2025)) as an auditor.
+For each candidate tuple(q,A, a∗)with the referee report
+Rand multi-view clipsV, the auditor 1) verifies whether
+the gold answer is consistent withR; 2) determines whether
+the item is answerable by commonsense alone, 3) checks
+whether the QA pair is semantically aligned with the video,
+and 4) assesses whether the answer can be inferred from
+the video. We define a quality score∈[0,10]to quantify
+this verification process. Items that fail the consistency or
+commonsensecheck,orfallbelowtheconfidencethreshold,
+arefilteredout.Toreduceartifacts,theauditisrepeatedthree
+timeswiththeviewordershuffled,andanitemmustpassall
+three runs to be accepted.
+Stage 4: Authoritative manual filtering.Finally, we re-
+cruit five expert annotators to review the remaining items
+to filter out ambiguous, non-visual, weakly grounded, or ill-
+posed questions, and to refine the wording and options so
+that the gold answer is clear and unique. The resulting cor-
+pus achieves high linguistic and multimodal alignment, pro-
+viding a robust basis for evaluating multi-view, fine-grained
+visual–textual understanding in sports officiating.
+Dataset Statistics
+Our final SportMV-Bench consists of3015QA pairs, each
+pairing a natural-language question with multi-view clips
+of the same event and requiring cross-view evidence ag-
+gregation and reasoning to answer. As shown in Fig. 2, we
+categorize questions into three types, PAR, REI and ADR,
+whichaccountfor35.23%,36.98%,and27.79%ofthecor-
+pus, respectively. These categories reflect increasing levels
+of reasoning and dependence on multi-view evidence. We
+detail each category as follows:
+•Perception-Aware Recognition (PAR).Evaluates low-
+level perceptual grounding ofwhat happenedacross
+views (e.g., tackle, block, push). The focus is on robust
+action identification under occlusion, motion blur, or ad-
+verseframing,benefitingfromcross-viewcorroboration.
+•Rule Event Aware Interpretation (REI).Probes mid-
+level, event/rule-sensitive reasoning: the question hinges
+on a rule or event-based anchors specified in the query.
+The model must localize these anchors in space and time
+acrossviewsandthenobtainruleorevent-relatedanswers
+about what happens before or after these anchors.
+•Adjudicative Decision Reasoning (ADR).Assesses
+high-level normative inference by synthesizing multi-
+camera views to concludewhat should be called. This
+involves localizing the foul context (e.g., inside vs. out-
+sidethebox),estimatingseverityandintent,andmapping
+thesituationtotheappropriatesanction(yellow/redcard,
+free kick, penalty, flagrant) without any explicit hints,
+Sports video
+LLM-Based QA Proposal Multimodal Verification Manual Filtering
+5:18 2nd Quarter (2PT/3PT) 
+Replay Center communicated 
+with the courtside 
+administrator and overturned 
+the 3pt fg to a 2pt fg.
+Instruction
+Question
+Answer Choice
+Gold Answer
+Final 
+Benchmark
+Foul label
+Event caption Foul label
+Event caption
+{"Offense": "Offense",
+"Contact": "With Contact",
+"Bodypart": "Under body",
+"Action": "Tackling",
+     ...,
+"Touch Ball": "No" }
+Data collection
+Verification Criteria
+- Referee guidelines
+- Commonsense inferable
+- Video correlation
+- Visual inferable
+- Simulate referee 
+certification exam
+- Follow referee 
+report 
+ LLM
+ MLLM
+Segment by 
+scene detection
+Filtering Criteria
+- Referee guidelines
+- Commonsense inferable
+- Visual inferable
+- Answer ambiguity
+Filtering
+Referee report
+Figure 3:Benchmark construction pipeline.We construct the benchmark through four stages. First, we collect paired videos
+and official referee reports from public video platforms. Second, we employ a LLM to propose candidate QA pairs based on
+event captions and foul annotations, which helps mitigate the hallucination issue in MLLMs arising from redundant video
+content. Third, we apply a MLLM to filter these pairs according to criteria such as video–QA consistency and commonsense
+verification. Finally, human annotators further refine the dataset by removing ambiguous or unreasonable QA pairs.
+thereby rigorously testing cross-view spatiotemporal in-
+tegration and rule-grounded decision making.
+In summary, SportMV-Bench is the first benchmark that
+requires MLLMs to jointly reason across multiple asyn-
+chronous camera views of the same sports event. Its three-
+levelquestionhierarchy(PAR,REI,ADR)mirrorsthecogni-
+tiveprocessofreal-worldsportsofficiating,fromperceiving
+actions, to interpreting events under rules, to rendering ad-
+judicative decisions.
+Benchmark Analysis and Findings
+In this section, we establish a baseline evaluation protocol
+for MLLMs on SportMV-Bench and conduct a systematic
+analysis to diagnose performance bottlenecks.
+Baseline Evaluation Protocol
+Given the multi-view video setVand questionq, an MLLM
+predicts the answerˆaby aggregating evidence across views.
+A straightforward baseline treats the multi-view bundle as
+a single concatenated input, delegating all view selection
+and cross-view fusion to the MLLM. Specifically, we pack
+all views with view-identifier tokens and questionqinto a
+unified sequenceSand feed it to the MLLM:
+ˆa=MLLM(S), S= [q;⟨V 1⟩X 1;. . .;⟨VN⟩X N ],(1)
+whereX i denotes uniformly sampled frames from viewVi.
+For multiple-choice QA, the prediction follows likelihood
+maximization:ˆa= arg max ak∈A logp θ(ak |S). This base-
+line imposes no explicit structure for cross-view reasoning;
+the MLLM must implicitly identify informative viewpoints,
+discountmisleadingperspectives,andintegratecomplemen-
+tary cues within its fixed context budget.
+We evaluate a broad set of state-of-the-art open-source
+and proprietary MLLMs under this protocol. The detailed
+experimental setup and full quantitative results are provided
+in experiment section. Overall, even the strongest models
+perform poorly, revealing substantial challenges in this task.
+Bottleneck Analysis
+Beyond general video understanding, multi-view sports un-
+derstanding introduces two additional challenges: (1) effec-
+tive exploitation of multi-view information, and (2) robust
+sports-specific reasoning. We analyze these aspects through
+controlled experiments and extract insights that guide our
+method design.
+Setting PAR REI ADR Overall
+1-View (Random) 41.73 52.58 27.84 42.35
+1-View (Best) 44.41 56.27 32.46 45.91
+M-View (Guided) 48.36 59.86 33.21 49.04
+M-View (All) 42.63 52.41 29.97 43.26
++ Knowledge 43.59 56.68 31.82 45.43
++ Oracle Tool 88.71 61.09 38.15 64.98
++ COT 39.82 44.53 29.18 39.32
+Table1:Analysisofviewconfigurationsanddifferentstrate-
+giesonMLLMperformance.The highlightedrowisQwen3-
+VL-30Bunderourbaselineevaluationprotocol,andthebot-
+tom three rows build on it with different strategies.
+CanMLLMseffectivelyleveragemulti-viewinformation?
+To examinehow multi-view informationaffects MLLMper-
+formance, we evaluate MLLMs under four view configura-
+tions that vary in two dimensions: view quantity (single vs.
+multiple) and view quality (random vs. best vs. guided).
+•1-View(Random):asinglerandomlysampledviewpoint;
+•1-View (Best): the most suitable viewpoint for the ques-
+tion, annotated by a strong MLLM (GPT-5);
+•M-View (All): all available viewpoints provided jointly;
+•M-View(Guided):multipleviewsprovided,withexplicit
+instruction to prioritize the best view while using others
+as auxiliary references.
+All configurations follow the baseline evaluation protocol in
+Eq. 1, differing only in the active views included inSand in
+prompting.WeevaluateQwen3-VL-30B,withresultsshown
+in Tab. 1, and observe two key findings:
+1)Quantityofviews̸=qualityofinformation.M-View(All)
+yields only marginal gains over1-View (Random)and re-
+mains substantially worse than1-View (Best). Redundant,
+occluded, or misleading angles introduce visual noise that
+offsets the benefit of complementary perspectives.
+2)Active view selection is critical.M-View (Guided)
+achievesthebestperformance.Theoptimalstrategyisnotto
+ingest more views, but to selectively focus on and aggregate
+the informative ones. Current MLLMs lack explicit mecha-
+nisms for autonomous view selection, structured cross-view
+aggregation, and evidence-aware reasoning.
+What can improve sports-specific reasoning?We fur-
+ther examine representative strategies targeting reasoning
+Figure 4:Overview of SportMV-Agent.The orchestrator coordinates an iterative loop: at each step it selects views, invokes
+perception tools, analyzes evidence reliability, and decides whether to continue or emit the final answer.
+bottlenecks:(1)Chain-of-Thought(COT), a widely adopted
+strategy for enhancing reasoning in LLMs; (2)Sports-
+specific knowledge(SP-Knowledge), which provides do-
+main knowledge that the MLLM may lack; and (3)Fine-
+grained visual perception(FG-Perception), which sup-
+pliesfine-grainedactionandcontactrecognitionandground-
+ing information. The effects of these strategies are shown in
+Tab. 1. We draw the following three lessons:
+1)COT solely cannot improve performance.Despite its
+proven effectiveness in many language and vision-language
+tasks, COT reasoning surprisingly leads to a decline in ac-
+curacyforQwen3-VL-30Bonourbenchmark.Thissuggests
+thatincomplexmulti-viewsportsscenes,sequentialreason-
+ingwithoutreliablevisualgroundingamplifieshallucination
+rather than improving decision quality.
+2)Domain knowledge is not the primary bottleneck.We
+provide detailed sports-specific guidelines for each option,
+generated by GPT-5 to highlight decisive cues. As shown
+in Tab. 1, performance gains are negligible, indicating that
+conceptual knowledge is not the limiting factor.
+3)Fine-grained visual perception is decisive.Whensupplied
+with annotated action and contact, performance improves
+dramatically.Thisindicatesthatpreciseperceptionofplayer
+actions and interactions constitutes a primary bottleneck for
+MLLMsinmulti-viewsportsunderstanding.High-levelrea-
+soning strategies alone cannot compensate for deficiencies
+in low-level perceptual accuracy.
+Summary.Our analysis reveals three core bottlenecks for
+baseline MLLMs: (1) the inability to autonomously select
+informative views, (2) fragile reasoning performance that is
+highlysensitivetoperceptualerrors,and(3)insufficientfine-
+grainedvisualperception,particularlyforactionrecognition
+and contact detection.
+SportMV-Agent
+As analyzed in the above section, existing MLLMs strug-
+gle with multi-view sports understanding. A single forward
+pass forces the model to passively process all perspectives
+Algorithm 1: SportMV-Agent workflow.
+Require:q,V={V 1, . . . , VN },T,π θ
+Ensure:Predicted answerˆa
+1:V act
+0 ← V;E 0 ← ∅;t←1▷initialize
+2:whilet≤t max do
+3:s t ←(q,V act
+t−1,E t−1)▷construct state
+4:(H t, ot)←π θ(st)▷generate thought + op.
+5:ifsufficient confidence fromH t then
+6:returnˆa←o t ▷emit final answer
+7:else ifo t isViewSelectthen
+8:V act
+t ←o t(V)▷select views
+9:E t ←π θ(V act
+t )▷collect evidence
+10:else ifo t isToolExecthen
+11: (T act, V tool)←o t(T,V)▷select tool, target view
+12:E t ←π θ(T act(V tool))▷collect evidence
+13:end if
+14:E t ← Et−1 ∪{Et};t←t+1▷accumulate evidence
+15:end while
+at once, including occlusion and misleading views. We in-
+stead adopt an agentic approach:SportMV-Agentactively
+decides which view to examine, invokes specialized percep-
+tion tools to extract concrete evidence, and iteratively accu-
+mulates findings until sufficient confidence is reached.
+Overview.As illustrated in Fig. 4, SportMV-Agent takes
+as input a questionq, multi-view videosV, and a set of
+perception toolsT, and outputs the predicted answerˆa. The
+framework consists of an orchestrator that coordinates an
+iterative loop ofevidence collectionandevidence-grounded
+reasoning, continuing until sufficient evidence is gathered
+for a confident prediction.
+Orchestration
+The orchestratorπ θ serves as the central controller of
+SportMV-Agent.ThefullprocedureissummarizedinAlg.1.
+It maintains a reasoning statest = (q,V act
+t−1,E t−1)compris-
+ingthequestion,thecurrentlyactiveviews,andtheevidence
+accumulatedfromprevioussteps.Ateachiteration,givens t,
+the orchestrator generates a thoughtHt and an operationot.
+Ht represents a textual analysis and plan for the next step.
+ot is either the final answer or an evidence collection op-
+eration for next step, determined by the confidence ofHt.
+If the confidence is insufficient, the orchestrator triggers the
+evidence-collection operationot to obtain new evidenceEt;
+otherwise, it outputs the final answerˆa.
+Evidence Collection
+Evidence is collected through two complementary opera-
+tions, chosen by the orchestrator according to the current
+states t:active view selection, which decideswhere to look,
+andactive tool execution, which decideswhat to extract.
+Active view selection.In complex sporting events, the “op-
+timal” view is dynamic and context-dependent. When the
+orchestrator determines that the current view suffers from
+occlusion, motion blur, or lacks critical detail, it triggers a
+view-selection operationo t =ViewSelectto select infor-
+mativeanglesV act
+t ⊆ V.Thesystemstartswithaccesstothe
+full set of available views, denoted asVact
+0 =V. Whenever
+a view switch occurs, the video segment from the newly se-
+lectedviewisintegratedintotheagent’sobservationcontext.
+Active tool selection and execution.Fine-grained percep-
+tionisdemonstratedtobecriticalformulti-viewsportsunder-
+standing.WeequiptheframeworkwithaPerceptionToolbox
+Tthat delivers sports-specific expertise asperceptionrather
+than text. The orchestrator invokes these tools through the
+operationo t =ToolExec, which selects the appropriate
+tool and target view based on the current state. The toolbox
+isextendableandcurrentlyincludesthreefundamentaltools
+designed for sports analysis:
+•Action Recognition(T act): outputs a ranked list of ac-
+tion names with confidence scores.
+•Contact Detection(T con): outputs a binary judgment
+of whether physical contact occurs between two players.
+•ContactPartDetection(T par):triggeredwhencontact
+is detected, outputs the body region involved.
+For example, given a football play question, the orchestrator
+may start from a global view to identify the foul area. Re-
+alizing that the specific action type and physical contact is
+obscured, it triggers a view switch to a close-up sideline an-
+gle, invokesTact to categorize the type of action, and then
+invokesT con to determine the situation of contact before
+emitting a final decision.
+Experiment
+In this section, we evaluate both baseline MLLMs and
+our proposed SportMV-Agent on SportMV-Bench. We first
+present the main results comparing SportMV-Agent against
+state-of-the-art MLLMs, followed by ablation studies that
+validate the contribution of each component.
+Baseline MLLMs.We evaluate eight state-of-the-art
+MLLMs on SportMV-Bench using the protocol in bench-
+mark analysis, including open-source models (LLaVA-
+Next (Li et al. 2024a), Qwen2.5-VL-72B (Bai et al. 2025),
+Qwen3-VL-30B(Team2025),InternVL2.5-38B(Chenetal.
+2024), GLM-4.5V (Team et al. 2025), DeepSeek-VL (Wu
+et al. 2024)) and proprietary models (GPT-4o (Hurst et al.
+2024b), GPT-4.1).
+Model PAR REI ADR Overall
+LLaVa-Next (Li et al. 2024a)47.18 56.50 32.85 47.43
+Qwen2.5-VL-72B (Bai et al. 2025)45.31 53.99 35.75 45.34
+Qwen3-VL-30B (Team 2025)42.63 52.41 29.97 43.26
+InternVL2.5 (Chen et al. 2024)45.16 56.73 34.42 45.79
+GLM-4.5V (Team et al. 2025)48.36 56.95 33.95 48.40
+DeepSeek-VL (Wu et al. 2024)32.31 37.46 27.17 32.88
+GPT-4o (Hurst et al. 2024b)52.25 59.55 41.80 52.31
+GPT-4.1 (Hurst et al. 2024b)58.23 65.99 49.09 59.12
+SportMV-Agent 68.57 72.56 62.22 68.35
+Table 2: Quantitative comparisons of the existing state-of-
+the-artMLLMsontheSportMV-Bench.Thebestandsecond
+best results areboldand underlined . All the numbers are
+presented in %.
+Implementation details.Videos are processed at 2 fps. We
+report exact-match accuracy averaged over three runs. Each
+model receives the same prompt and outputs the answer
+within<answer>...</answer>tags, parsed via regex
+(withgpt-4.1-miniasfallback).InSportMV-Agent,GPT-4.1
+serves as the orchestrator, while Qwen2.5-VL-72B imple-
+ments the perception tools, returning top-3 predictions with
+confidencescores.Additionaldetailsareprovidedinthesup-
+plementary material.
+Main Result
+We report the main quantitative results in Tab. 2. Among
+all the baseline MLLMs, GPT-4.1 achieves the best per-
+formance at 59.12%, while GLM-4.5V is the strongest
+open-source model (48.40%), leaving a substantial gap be-
+tween open- and closed-source models. Notably, models
+with strong general video understanding capabilities, such
+as Qwen3-VL-30B, show a performance drop on our multi-
+viewbenchmark,highlightingtheuniquechallengesofmulti-
+perspective sports reasoning. A category-wise results reveal
+that most models excel in REI but struggle with PAR and
+ADR, with average performance gaps of about 8.5% and
+19.3%, respectively. As discussed in benchmark analysis,
+REI often depends on a single decisive cue, whereas PAR
+is hindered by severe occlusions and ADR requires inte-
+grating evidence across multiple viewpoints together with
+rule-basedreasoning.SportMV-Agent,usingGPT-4.1asthe
+orchestrator, significantly boosts performance from 59.12%
+to68.35%,arelativeimprovementof15.61%.Thisvalidates
+that the agentic design, effectively bridges the multi-view
+reasoning gap that standard MLLMs fail to address.
+AqualitativecomparisonwiththeCOTbaselineisshown
+in Fig. 5. COT suffers from visual error accumulation,
+whereas SportMV-Agent actively selects the most informa-
+tive view to capture critical details and reach the correct de-
+cision. This example demonstrates how view switching and
+toolinvocationmitigatesocclusionandimprovesmulti-view
+evidence integration.
+Ablation Study
+We conduct ablation studies to evaluate the contributions of
+key components in SportMV-Agent, summarized in Tab. 3.
+The performance of SportMV-Agent is shown in Row 6.
+Figure 5:Qualitative example.Comparison between the reasoning outputs of SportMV-Agent and the COT baseline. The
+COT strategy suffers from visual error accumulation: due to occlusions inView 1andView 2, it fails to consider the critical
+evidence visible inView 3, incorrectly classifying the shot as a 3-pointer. In contrast, SportMV-Agent actively selects the most
+informative viewpoint (View 3), capturing the player’s foot-on-line detail. By combining view selection with perception tools,
+the framework correctly identifies the event as a 2-point field goal without foul. Key clues are highlighted inyellow, view
+analysis inblue, tool perception ingreen.
+Orchestrator Tool Top-K VSPAR REI ADR Overall
+1 GPT-4.1 - - - 58.23-10.3465.99-6.5749.09-13.1359.12-9.23
+2 GPT-4o Qwen Top-3✓ 57.44-11.1365.30-7.2646.01-16.2157.36-10.99
+3 GPT-4.1 Qwen Top-3× 61.37-7.20 64.54-8.0253.69-8.53 60.63-7.72
+4 GPT-4.1 GPT-4.1 Top-3✓71.43+2.8671.95-0.6161.48-0.74 68.76+0.41
+5 GPT-4.1 Qwen Top-1✓ 67.97-0.60 70.17-2.3957.33-4.89 66.18-2.17
+6 GPT-4.1 Qwen Top-3✓ 68.57 72.56 62.22 68.35
+Table 3: Ablation study on the key elements in SportMV-
+Agent.TheVScolumnindicateswhethertheframeworkuses
+active view selection. Red/green numbers indicate improve-
+ment/decline relative to our implementation of SportMV-
+Agent (row6).
+Impact of the orchestrator model.As shown in Row 2, re-
+placingGPT-4.1withthelesscapableGPT-4oastheorches-
+tratorresultsinaperformancedropof10.99%,underscoring
+the critical role of a strong reasoning backbone for effective
+evidence-grounded multi-view understanding.
+Impact of active view selection.As shown in Row 3, dis-
+abling the view switching module leads to a performance
+drop of 7.72%. By actively switching to viewpoints with
+fewerocclusions,theorchestratorprovideshigher-qualityvi-
+sual inputs for perception tools, thereby reducing perceptual
+ambiguity and limiting error propagation. This observation
+is consistent with the view-selection bottleneck revealed in
+our benchmark analysis.
+Impact of perception tool models.As shown in Row 4, re-
+placingtheQwenperceptiontoolwithGPT-4.1yieldsonlya
+marginal overall improvement of 0.41%. Only the PAR cat-
+egory that focuses more on perception improves by 2.86%,
+while the other two categories even decline slightly. This
+suggeststhattheframeworkisrobusttothechoiceofpercep-
+tionmodelsandcanleveragemorecost-effectivealternatives
+without significant loss in performance.
+Robustness to tool response noise.As shown in Row 5, re-
+stricting the retrieved results from top-3 candidates to top-1
+results leads to a performance drop of 2.17%. This suggests
+that the framework possesses an inherent self-correction
+mechanism; by providing a broader candidate set, the or-
+chestrator’s evidence analysis can filter out noise and rectify
+potential retrieval errors.
+Conclusion
+In this paper, we introduce SportMV-Bench, the first multi-
+viewbenchmarkdesignedtoevaluateMLLMsonmulti-view
+sports video understanding. SportMV-Bench is built from
+real-worldsportsmatchvideos,covers10differentsportsand
+threeprimaryquestiontypes,andcontains3015QApairsthat
+have been dual filtered by an MLLM and human annotators.
+Experimentsrevealthatcurrentmodelsoftenfailtoselectde-
+cisiveviewpoints,performpreciseperception,andaggregate
+complementaryevidence,leadingtolargegapsinmulti-view
+sportsunderstanding.Toaddressthesechallenges,wepresent
+SportMV-Agent,anagenticframeworkequippedwithanac-
+tive view selection mechanism and the ability to invoke var-
+ious perception tools. We hope this challenging benchmark
+will foreground the importance of multi-view evidence in
+sports videos and promote robust multi-view reasoning for
+sports understanding in real-world applications.
+References
+2025. GPT-5 System Card OpenAI.
+Bai,S.;Chen,K.;Liu,X.;Wang,J.;Ge,W.;Song,S.;Dang,
+K.; Wang, P.; Wang, S.; Tang, J.; et al. 2025. Qwen2. 5-vl
+technical report.arXiv preprint arXiv:2502.13923.
+Caron, M.; and Müller, O. 2023. TacticalGPT: uncovering
+the potential of LLMs for predicting tactical decisions in
+professional football. InStatsBomb Conference, 1–11.
+Chen, K.; Wang, J.; Zhang, J.; Li, M.; Lu, Y.; and
+Fan, H. 2026. Scaling Video Understanding via Com-
+pact Latent Multi-Agent Collaboration.arXiv preprint
+arXiv:2605.00444.
+Chen,Z.;Wang,W.;Cao,Y.;Liu,Y.;Gao,Z.;Cui,E.;Zhu,J.;
+Ye,S.;Tian,H.;Liu,Z.;etal.2024. Expandingperformance
+boundaries of open-source multimodal models with model,
+data,andtest-timescaling.arXivpreprintarXiv:2412.05271.
+Fang, X.; Mao, K.; Duan, H.; Zhao, X.; Li, Y.; Lin, D.; and
+Chen, K. 2024. Mmbench-video: A long-form multi-shot
+benchmark for holistic video understanding.Advances in
+Neural Information Processing Systems, 37: 89098–89124.
+Fu,C.;Chen,P.;Shen,Y.;Qin,Y.;Zhang,M.;Lin,X.;Yang,
+J.;Zheng,X.;Li,K.;Sun,X.;etal.2025a. MME:Acompre-
+hensiveevaluationbenchmarkformultimodallargelanguage
+models. InThe Thirty-ninth Annual Conference on Neural
+Information Processing Systems Datasets and Benchmarks
+Track.
+Fu, C.; Dai, Y.; Luo, Y.; Li, L.; Ren, S.; Zhang, R.; Wang,
+Z.; Zhou, C.; Shen, Y.; Zhang, M.; et al. 2025b. Video-
+mme: The first-ever comprehensive evaluation benchmark
+of multi-modal llms in video analysis. InProceedings of
+the Computer Vision and Pattern Recognition Conference,
+24108–24118.
+Gao, R.; Liu, X.; Hu, Z.; Xing, B.; Xia, B.; Yu, Z.; and
+Kälviäinen, H. 2025. Fsbench: A figure skating benchmark
+for advancing artistic sports understanding. InProceedings
+oftheComputerVisionandPatternRecognitionConference,
+13595–13605.
+Giancola,S.;Amine,M.;Dghaily,T.;andGhanem,B.2018.
+Soccernet: A scalable dataset for action spotting in soccer
+videos. InProceedings of the IEEE conference on computer
+vision and pattern recognition workshops, 1711–1721.
+Groom,R.;andNelson,L.2013. TheApplicationofVideo-
+BasedPerformanceAnalysisintheCoachingProcess1:The
+coachsupportingathletelearning. InRoutledgehandbookof
+sports coaching, 96–107. Routledge.
+He, X.; Liu, W.; Ma, S.; Liu, Q.; Ma, C.; and Wu, J.
+2025. FineBadminton: A Multi-Level Dataset for Fine-
+Grained Badminton Video Understanding.arXiv preprint
+arXiv:2508.07554.
+Held, J.; Cioppa, A.; Giancola, S.; Hamdi, A.; Devue, C.;
+Ghanem, B.; and Van Droogenbroeck, M. 2024a. Towards
+AI-powered video assistant referee system for association
+football.arXiv e-prints, arXiv–2407.
+Held, J.; Cioppa, A.; Giancola, S.; Hamdi, A.; Ghanem, B.;
+and Van Droogenbroeck, M. 2023. VARS: Video assistant
+referee system for automated soccer decision making from
+multipleviews. InProceedingsoftheIEEE/CVFConference
+on Computer Vision and Pattern Recognition, 5086–5097.
+Held, J.; Itani, H.; Cioppa, A.; Giancola, S.; Ghanem, B.;
+and Van Droogenbroeck, M. 2024b. X-vars: Introducing ex-
+plainabilityinfootballrefereeingwithmulti-modallargelan-
+guagemodels. InProceedingsoftheIEEE/CVFConference
+on Computer Vision and Pattern Recognition, 3267–3279.
+Held, J.; Itani, H.; Cioppa, A.; Giancola, S.; Ghanem, B.;
+and Van Droogenbroeck, M. 2024c. X-vars: Introducing ex-
+plainabilityinfootballrefereeingwithmulti-modallargelan-
+guagemodels. InProceedingsoftheIEEE/CVFConference
+on Computer Vision and Pattern Recognition, 3267–3279.
+Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh,
+A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Rad-
+ford, A.; et al. 2024a. Gpt-4o system card.arXiv preprint
+arXiv:2410.21276.
+Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh,
+A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Rad-
+ford, A.; et al. 2024b. Gpt-4o system card.arXiv preprint
+arXiv:2410.21276.
+Jaech, A.; Kalai, A.; Lerer, A.; Richardson, A.; El-Kishky,
+A.; Low, A.; Helyar, A.; Madry, A.; Beutel, A.; Carney,
+A.; et al. 2024. Openai o1 system card.arXiv preprint
+arXiv:2412.16720.
+Li, F.; Zhang, R.; Zhang, H.; Zhang, Y.; Li, B.; Li, W.; Ma,
+Z.; and Li, C. 2024a. Llava-next-interleave: Tackling multi-
+image, video, and 3d in large multimodal models.arXiv
+preprint arXiv:2407.07895.
+Li, H.; Deng, A.; Ke, Q.; Liu, J.; Rahmani, H.; Guo, Y.;
+Schiele, B.; and Chen, C. 2024b. Sports-qa: A large-scale
+video question answering benchmark for complex and pro-
+fessional sports.arXiv preprint arXiv:2401.01505.
+Li, Y.; Chen, L.; He, R.; Wang, Z.; Wu, G.; and Wang, L.
+2021. Multisports: A multi-person video dataset of spatio-
+temporally localized sports actions. InProceedings of the
+IEEE/CVF International Conference on Computer Vision,
+13536–13545.
+Li, Y.; Li, Y.; and Vasconcelos, N. 2018. Resound: Towards
+action recognition without representation bias. InProceed-
+ingsoftheEuropeanconferenceoncomputervision(ECCV),
+513–528.
+Liu, S.; Liu, X.; Huang, G.; Feng, L.; Hu, L.; Jiang, D.;
+Zhang, A.; Liu, Y.; and Qiao, H. 2020. Fsd-10: a dataset
+for competitive sports content analysis.arXiv preprint
+arXiv:2002.03312.
+Liu, S.; Zhang, A.; Li, Y.; Zhou, J.; Xu, L.; Dong, Z.; and
+Zhang, R. 2021. Temporal segmentation of fine-gained se-
+mantic action: A motion-centered figure skating dataset. In
+ProceedingsoftheAAAIconferenceonartificialintelligence,
+volume 35, 2163–2171.
+Liu, Y.; Duan, H.; Zhang, Y.; Li, B.; Zhang, S.; Zhao, W.;
+Yuan,Y.;Wang,J.;He,C.;Liu,Z.;etal.2024. Mmbench:Is
+your multi-modal model an all-around player? InEuropean
+conference on computer vision, 216–233. Springer.
+Mackenzie, R.; and Cushion, C. 2013. Performance analy-
+sis in football: A critical review and implications for future
+research.Journal of sports sciences, 31(6): 639–676.
+Midoglu, C.; Sabet, S. S.; Sarkhoosh, M. H.; Majidi, M.;
+Gautam, S.; Solberg, H. M.; Kupka, T.; and Halvorsen, P.
+2024. Ai-basedsportshighlightgenerationforsocialmedia.
+InProceedings of the 3rd Mile-High Video Conference, 7–
+13.
+Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec,
+M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-
+Nouby, A.; et al. 2024. Dinov2: Learning robust visual fea-
+tures without supervision.Transactions on Machine Learn-
+ing Research Journal.
+Parmar, P.; and Morris, B. 2019. Action quality assessment
+across multiple actions. In2019 IEEE winter conference on
+applicationsofcomputervision(WACV),1468–1476.IEEE.
+Rao, J.; Li, Z.; Wu, H.; Zhang, Y.; Wang, Y.; and Xie, W.
+2025. Multi-agent system for comprehensive soccer under-
+standing. InProceedings of the 33rd ACM International
+Conference on Multimedia, 3654–3663.
+Shao, D.; Zhao, Y.; Dai, B.; and Lin, D. 2020a. Finegym:
+A hierarchical video dataset for fine-grained action under-
+standing. InProceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 2616–2625.
+Shao, D.; Zhao, Y.; Dai, B.; and Lin, D. 2020b. Intra-and
+inter-action understanding via temporal action parsing. In
+ProceedingsoftheIEEE/CVFconferenceoncomputervision
+and pattern recognition, 730–739.
+Team,G.;Anil,R.;Borgeaud,S.;Alayrac,J.-B.;Yu,J.;Sori-
+cut, R.; Schalkwyk, J.; Dai, A. M.; Hauth, A.; Millican, K.;
+et al. 2023. Gemini: a family of highly capable multimodal
+models.arXiv preprint arXiv:2312.11805.
+Team, G.; Georgiev, P.; Lei, V. I.; Burnell, R.; Bai, L.;
+Gulati, A.; Tanzer, G.; Vincent, D.; Pan, Z.; Wang, S.;
+et al. 2024. Gemini 1.5: Unlocking multimodal understand-
+ing across millions of tokens of context.arXiv preprint
+arXiv:2403.05530.
+Team,Q.2025.Qwen3TechnicalReport.arXiv:2505.09388.
+Team, V.; Hong, W.; Yu, W.; et al. 2025. Glm-4.5 v and
+glm-4.1 v-thinking: Towards versatile multimodal reason-
+ing with scalable reinforcement learning.arXiv preprint
+arXiv:2507.01006.
+Wang, P.; Bai, S.; Tan, S.; Wang, S.; Fan, Z.; Bai, J.; Chen,
+K.; Liu, X.; Wang, J.; Ge, W.; et al. 2024. Qwen2-vl: En-
+hancing vision-language model’s perception of the world at
+any resolution.arXiv preprint arXiv:2409.12191.
+Wu, Z.; Chen, X.; Pan, Z.; Liu, X.; Liu, W.; Dai,
+D.; Gao, H.; Ma, Y.; Wu, C.; Wang, B.; et al. 2024.
+Deepseek-vl2: Mixture-of-experts vision-language models
+for advanced multimodal understanding.arXiv preprint
+arXiv:2412.10302.
+Xia, H.; Ge, H.; Zou, J.; Choi, H. W.; Zhang, X.; Suradja,
+D.; Rui, B.; Tran, E.; Jin, W.; Ye, Z.; et al. 2025. SportR: A
+BenchmarkforMultimodalLargeLanguageModelReason-
+ing in Sports.arXiv preprint arXiv:2511.06499.
+Xia, H.; Yang, Z.; Zou, J.; Tracy, R.; Wang, Y.; Lu, C.; Lai,
+C.; He, Y.; Shao, X.; Xie, Z.; et al. 2024. Sportu: A com-
+prehensive sports understanding benchmark for multimodal
+large language models.arXiv preprint arXiv:2410.08474.
+Xu, J.; Zhao, G.; Yin, S.; Zhou, W.; and Peng, Y. 2024.
+Finesports: A multi-person hierarchical sports video dataset
+for fine-grained action understanding. InProceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 21773–21782.
+Yu,Y.;Liu,H.;Wang,H.;andZhou,D.2003. Content-based
+TVsportsvideoretrievalusingmultimodalanalysis.InThird
+InternationalSymposiumonMultispectralImageProcessing
+and Pattern Recognition, volume 5286, 962–967. SPIE.
+Yue, X.; Ni, Y.; Zhang, K.; Zheng, T.; Liu, R.; Zhang, G.;
+Stevens,S.;Jiang,D.;Ren,W.;Sun,Y.;etal.2024. Mmmu:
+A massive multi-discipline multimodal understanding and
+reasoning benchmark for expert agi. InProceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 9556–9567.
+Zhang, J.; Han, D.; Han, S.; Li, H.; Lam, W.-K.; and Zhang,
+M. 2025. ChatMatch: Exploring the potential of hybrid
+vision–language deep learning approach for the intelligent
+analysis and inference of racket sports.Computer Speech &
+Language, 89: 101694.
+Beyond the Single Camera: Agentic
+Multi-View Reasoning in Sports Video
+Understanding
+Supplementary Material
+In this supplementary material, we present the following:
+•Discussion of MLLM-Based QA Generation
+•More Qualitative Example
+•More Implementation Details
+•More Data Construction Details
+•Dataset QA Examples
+Discussion of MLLM-Based QA Generation
+As mentioned in the main paper, using MLLMs as a QA
+generator can yield undesirable items once visual input is
+introduced. Beyond the failure mode discussed in the main
+paper, we observe three additional types:
+•Hallucinated Answer Choice.The MLLM sometimes
+misperceives the visual scene, and such erroneous vi-
+sual information is mixed with the correct signals from
+the referee report, giving rise to spurious but plausible
+answer options. As shown in Fig. 1, the referee report
+clearly labels the decision as a free kick. However, after
+incorporating visual information, the MLLM incorrectly
+introducesspuriousevents(e.g.,aholdingfoulinthecon-
+fused image) into the options, resulting in no candidate
+corresponding to the true decision.
+•Easily Answerable Item.Some questions are supposed
+to require first perceiving the video and then reasoning
+over the context. However, the MLLM may directly in-
+clude the information that should be visually perceived
+in the question, making the resulting item overly sim-
+ple. As shown in Fig. 2, although the correct answer is
+a sliding tackle, the MLLM explicitly encodes the ob-
+served visual cue (“defender slide”) in the question. This
+causes the question to be trivial and easily answerable
+even without watching the video. Meanwhile, when we
+usethesameMLLM(GPT-5)tobothgenerateandanswer
+the QA pairs, it solves almost all questions correctly. We
+hypothesize that this is because constraining the MLLM
+to produce visually verifiable questions encourages it to
+generate relatively simple items whose answers lie well
+within GPT-5’s existing capabilities, thereby failing to
+probe the model’s unknown weaknesses or more chal-
+lenging failure modes.
+•General Video Question.The introduction of visual in-
+formation may lead the MLLM to generate overly gen-
+eral questions that can be answered without any sports-
+specificunderstanding,whichismisalignedwithoureval-
+uation objective. As shown in Fig. 4, the generated ques-
+tion asks about the phase of the NBA season, which can
+beanswereddirectlyfromthescoreboardinview1.How-
+ever, this question is unrelated to sports knowledge and
+thus misaligned with our evaluation goal.
+Which offense category best applies to this infringement?
+A:Direct free kick for holding an opponent.
+B:Penalty kick for tripping an opponent..
+C:No offense; fair challenge.
+D:Deliberate handball resulting in a direct free kick.
+View 1View 2
+Confused Image
+Figure 1: Hallucinated Answer Choice Example. The direct
+freekickisactuallycausedbyaslidingtackle,buttheMLLM
+introduceswrongvisualinformationintotheoptions,sonone
+of the options is correct.
+As the Manchester United attacker cuts inside near the right edge 
+of the penalty area, the Arsenal defender slides and clips the 
+attacker’ s leg with no clear ball contact. Which action 
+classification best describes the defender’ s challenge in the clip?
+A:Aerial challenge.
+B:Standing tackle.
+C:Sliding tackle.
+D:Goalkeeper’s challenge with hands.
+View 1View 2
+Figure 2: Easily Answerable Item Example. The key cue
+“slide” already appears in the question, so the MLLM can
+easilyproducethecorrectanswerwithoutrealunderstanding,
+which is undesirable for evaluation.
+More Qualitative Example
+In this section, we provide a qualitative comparison result
+(Fig. 3) in addition between our SportMV-Agent and the
+COT strategy. As illustrated in Fig. 3, CoT fails to provide
+a correct ruling for this complex ADR case. A closer in-
+spectionoftheCoTreasoningprocessrevealsthatitslackof
+dynamic viewpoint switching leads it to overlook the illegal
+contact initiated by the offensive player in View 3. In con-
+trast, SportMV-Agent successfully identifies this infraction
+bystrategicallyswitchingperspectivesandinvokingspecial-
+ized contact-detection tools. By capturing the upper-body
+contact (specifically at the neck) and synthesizing informa-
+tion across multiple views, our method correctly classifies
+the incident as an offensive foul in accordance with official
+regulations.
+More Implementation Details
+As mentioned in the main paper, we leverage Qwen2.5-VL-
+72B (Bai et al. 2025) as the action recognition tool, contact
+detectiontoolandcontactpartdetectiontoolinourproposed
+agenticframework.Theoutputoftheactionrecognitionand
+contact part detection tool comprises the Top-3 retrieval re-
+sults and their corresponding confidence scores. In this sec-
+tion, we will provide more details. For action recognition,
+we restrict the model’s output space to the predefined action
+taxonomiesoftherespectivedatasets.Specifically,forsoccer
+tasks, the model is constrained to the action classes defined
+inSoccerNet(Giancolaetal.2018);forbasketballtasks,itis
+limited to the categories within FineSports(Xu et al. 2024).
+Thisdefinitionofactionsetsiscomprehensiveenoughforthe
+relevant sports categories, effectively preventing ’open-set’
+hallucinations and facilitating a more objective evaluation
+ofthereasoningpipeline.Forthecontactpartdetectiontool,
+weemployahierarchicalclassificationstrategy.Themodelis
+Figure3:Qualitativeexample.ComparisonbetweenthereasoningoutputsofSportMV-AgentandtheCOTbaseline.TheCOT
+strategy suffers from visual missing: it fails to consider the critical evidence visible inView 3, incorrectly classifying the foul
+as a defensive shooting foul. In contrast, SportMV-Agent actively selects the most informative viewpoint (View 3), capturing
+theoffensiveplayer’sillegalcontactwiththedefender’sneck.Bysynthesizingthiswithconsistentobservationsofthedefender’s
+legal verticality and positioning across other views, SportMV-Agentaccurately concludes an offensive foul.
+Based on the given videos, during which phase of the NBA season 
+is this game being played?
+A:Late regular-season game fighting for playoff seeding.
+B:Eastern Conference Play-In Tournament.
+C:Eastern Conference Finals, Game 1.
+D:Eastern Conference First-Round playoff game.
+View 1View 2
+Figure 4: General Video Question Example. The question
+and options are all correct, but is unrelated to the sports
+knowledge.
+requiredtofirstcategorizethecontactaseitherupperbodyor
+underbodybeforespecifyingtheexactanatomicalpart.This
+coarse-to-fineapproachreducesinitialsearchcomplexityand
+minimizes fine-grained confusion, mirroring the systematic
+observation process of professional referees.
+More Data Construction Details
+Video Sources Collection
+SportMV-Bench is built fromofficiating-review(replay)
+broadcasts. Our key observation is that, to adjudicate a con-
+tested play, every major sport operates an official video-
+reviewprotocolthatreplaysthesamedecisivemomentfrom
+Sport Official video-review source
+Basketball NBA Replay Center
+Soccer Video Assistant Referee (VAR)
+Cricket Decision Review System (DRS)
+Rugby Television Match Official (TMO)
+American football Instant Replay review
+Ice hockey NHL Situation Room review
+Baseball MLB Replay Review
+Tennis Hawk-Eye challenge
+Volleyball Video Challenge System
+Australian football AFL Score Review
+Table1:Officialvideo-reviewmechanismusedasthemulti-
+view source for each of the ten sports in SportMV-Bench.
+several broadcast cameras and announces an authoritative
+ruling. Such broadcasts are thus an ideal source of multi-
+viewdata:asingleclipalreadycontainsthesameeventfrom
+multipleangles,togetherwithaground-truthdecisionthatwe
+lateruseastheanswersourceforQAconstruction(Stage2).
+Tab.1liststhereviewmechanismwetargetforeachoftheten
+sports. Basketball clips are collected from the NBA official
+replayarchive,soccerclipsareadoptedfromSoccerNet(Gi-
+ancolaetal.2018),andtheremainingeightsportsarecrawled
+Figure 5:QA examples from SportMV-Bench.We show four examples drawn from baseball, volleyball, cricket, and rugby.
+Eachexamplepairsaquestionanditsfouransweroptionswiththecorrespondingmulti-viewclips.Derivingthecorrectanswer
+requires aggregating evidence across cameras rather than relying on a single view.
+from a public video platform (YouTube).
+Crawling procedure.For each of the eight crawled sports,
+we design a set ofevent-levelsearch queries that target
+single-eventreviewclipsratherthanlongcompilations,e.g.,
+“cricketDRSreviewoverturnedoutdecision”,“rugbyTMO
+try or no try”, and“tennis Hawk-Eye challenge ball in or
+out”. For every query, candidate videos are retrieved and
+filtered on the fly by three complementary rules:
+•Duration window.We keep only clips whose length
+matches a typical single-event review, using a per-sport
+window of15–45s for fast reviews (cricket, rugby, ten-
+nis, Australian football) and15–90s for longer replay
+segments (American football, ice hockey, baseball, vol-
+leyball). This removes both trivially short junk and hour-
+long compilations, talks, or full matches.
+•Positive title requirement.A candidate is retained only
+if its title matches a per-sport keyword whitelist cover-
+ing the sport name and its officiating jargon (e.g.DRS,
+TMO,VAR,Hawk-Eye,situation room,score
+review).Thisisourprimaryanti-driftguard,preventing
+cross-sport contamination such as an American-football
+query returning soccer VAR clips.
+•Blocklist.We reject titles matching an explainer/com-
+pilation blocklist (e.g.,explainer,top 10,compilation,
+reaction,pressconference)andvideo-gamefootage(e.g.,
+Madden,2K,FIFA), which otherwise leak in when gen-
+uine in-sport review clips are scarce.
+All retrieved videos are downloaded at up to 720p, dedupli-
+catedacrossrunsviaaglobaldownloadarchive,andcapped
+per sport to maintain balance. For each clip, we retain the
+official decision, together with its metadata (title, uploader,
+anddescriptionrecordingtheverdict),asauthoritativetextual
+groundtruth.Allmaterialisusedstrictlyfornon-commercial
+academic research.
+Multi-View Segmentation and Filtering.
+Since review footage interleaves distinct viewpoints of the
+same action within a single continuous stream, we design a
+three-step procedure to recover a clean set of camera view-
+points.(i) Shot segmentation.We apply shot-boundary de-
+tection to partition each review sequence into consecutive
+shots.(ii) Content filtering.Broadcast streams are heav-
+ilyinterleavedwithnon-actioncontent,suchasscoreboards,
+graphics,decisioncards,andtightclose-upsofplayersorref-
+erees; treating every shot as a viewpoint therefore severely
+over-counts.Withasinglevision-languagemodel(GPT-4.1)
+call per clip, we classify the representative frame of every
+shotasgame,close-uporgraphic,and,forgameshots,addi-
+tionallyassignacoarsecamera-viewpointlabel(e.g.,broad-
+case wide,high behind goal,sideline). We retain only game
+shots and discard all graphic and close-up shots.(iii) View-
+point clustering.As the broadcast repeatedly cuts back and
+forth between the same cameras, multiple shots may corre-
+spondtoanidenticalviewpoint.WeextractDINOv2features
+from the retained shots and perform agglomerative cluster-
+ing to merge visually redundant shots, yielding the set of
+genuinely distinct camera viewpoints. Only instances with
+at least two distinct viewpoints are kept as valid multi-view
+samples,whilesingle-viewinstancesarediscarded.Notably,
+the resulting multi-view clips for a given event are not tem-
+porally synchronized, which further increases task difficulty
+by requiring the model to establish correspondence across
+unaligned views.
+Human Filtering and Refining
+The automatic pipeline (Stages 1–3) already removes most
+low-quality items, but a small fraction of QA pairs remain
+ambiguous,weaklygrounded,oranswerablewithoutwatch-
+ing the videos. We therefore conduct a final round of expert
+human filtering and refinement.
+Annotators.Werecruitfiveannotatorswithpriorexperience
+in the corresponding sports and their officiating rules. Be-
+fore annotation, all annotators are given a unified guideline
+describing the three question types (PAR, REI, ADR), the
+definition of a valid multi-view question, and the reasons an
+item should be rejected.
+Review protocol.Each item is presented together with its
+question, four options, and the associated multi-view clips.
+An annotator first attempts to answer the question from the
+videos alone, and then judges the item against four criteria:
+•Visualanswerability.Thecorrectanswermustbederiv-
+able from the multi-view clips, not from commonsense
+or textual priors.
+•Grounding and uniqueness.The gold answer must be
+consistent with the official ruling, and exactly one option
+should be correct.
+•Clarity.The question and options must be unambiguous
+and free of leaking cues.
+For each item, an annotator eitherkeeps,edits, ordiscards
+it.Editingincludesrephrasingthequestionforneutralityand
+clarity, and revising distractors so that they remain plausi-
+ble yet clearly incorrect. To ensure reliability, every item is
+reviewed by at least two annotators, and an item is retained
+only when they agree; disagreements are resolved by a third
+annotator. This stage removes a further13.81%of the can-
+didate items and refines the wording of many others, yield-
+ing the final 3015 QA pairs. The resulting corpus exhibits
+high linguistic quality and multimodal alignment, provid-
+ing a reliable basis for evaluating multi-view, fine-grained
+visual-textual understanding in sports officiating.
+Dataset QA Examples
+To provide a more intuitive understanding of SportMV-
+Bench, Fig. 5 presents representative QA examples in dif-
+ferent sports. Each example pairs a question and four an-
+swer options (with the correct answer highlighted) with its
+multi-view clips. Answering correctly requires aggregating
+evidenceacrosscamerasratherthanrelyingonasingleview.

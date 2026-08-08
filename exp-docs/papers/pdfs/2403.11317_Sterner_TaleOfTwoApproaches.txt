@@ -1,0 +1,578 @@
+Few-Shot VQA with Frozen LLMs: A Tale of Two Approaches
+Igor Sterner, Weizhe Lin, Jinghong Chen, Bill Byrne
+Department of Engineering
+University of Cambridge
+{is473, wl356, jc2124, wjb31}@cam.ac.uk
+Abstract
+Two approaches have emerged to input im-
+ages into large language models (LLMs). The
+first is to caption images into natural language.
+The second is to map image feature embed-
+dings into the domain of the LLM and pass
+the mapped embeddings directly to the LLM.
+The majority of recent few-shot multimodal
+work reports performance using architectures
+that employ variations of one of these two ap-
+proaches. But they overlook an important com-
+parison between them. We design a controlled
+and focused experiment to compare these two
+approaches to few-shot visual question answer-
+ing (VQA) with LLMs. Our findings indicate
+that for Flan-T5 XL, a 3B parameter LLM, con-
+necting visual embeddings directly to the LLM
+embedding space does not guarantee improved
+performance over using image captions. In the
+zero-shot regime, we find using textual image
+captions is better. In the few-shot regimes, how
+the in-context examples are selected determines
+which is better.
+1 Introduction
+A fundamental feature of intelligence is the capa-
+bility to integrate multiple modalities. This en-
+ables many ambiguities to be reduced and supports
+knowledge acquisition. In particular, a fundamen-
+tal multimodal task is visual question answering
+(VQA). VQA is the task of answering a question
+using information from an image. Figure 1 shows
+three examples.
+How many people
+are riding on the
+elephant? 2
+What color is the
+bus?
+blue and white
+Does this train look
+to be in good
+working order? no
+Figure 1: Examples of visual question answering.
+Source: Goyal et al. (2016)
+In the quest to integrate the modalities of vision
+and language, there has been a substantial effort to
+integrate the two dominant architectures in these
+fields: large language models (LLMs) and vision
+transformers (Alayrac et al., 2022; Li et al., 2023;
+Huang et al., 2023; Wang et al., 2021; Chen et al.,
+2022). LLMs are a general-purpose interface for
+text-to-text tasks (Brown et al., 2020). Vision trans-
+formers are able to transform images into a generic
+feature representation (Dosovitskiy et al., 2021).
+These models have, however, been trained sepa-
+rately. This means that the representation of one
+can not be used in the other.
+To overcome this, Mokady et al. (2021) train a
+network to transform the image representation into
+the domain of the language representation. They
+do so by learning the transformation that maps the
+image representation into a representation that gen-
+erates an image caption when passed to the LLM.
+Tsimpoukelli et al. (2021) append a question when
+passing this transformed image representation to
+the LLM, for VQA. This approach is visualized in
+Figure 2a.
+Another approach to VQA is to caption the im-
+ages, and pass these captions to the LLM as natural
+language alongside a question (Yang et al., 2022;
+Guo et al., 2023; Hu et al., 2022; Tiong et al., 2022).
+This approach is visualized in Figure 2b
+In few-shot VQA, in-context examples are also
+passed to the LLM in the prompt. These are sam-
+ples of desired behaviour expressed as inputs with
+correct responses. Including in-context examples
+has been empirically shown to improve few-shot
+VQA performance (Liu et al., 2022; Alayrac et al.,
+2022).
+Recent VQA architectures generally employ a
+variation of either the embedding-based or caption-
+based approaches. However, a comparison of these
+two approaches has been previously overlooked.
+Our contribution is a controlled and focused com-
+parison of these two approaches. Additionally, we
+arXiv:2403.11317v1  [cs.CL]  17 Mar 2024
+(a) Embedding-based VQA
+(b) Caption-based VQA
+Figure 2: Two approaches to input images into LLMs for VQA.
+ indicates the model is frozen
+conduct an analysis to determine how the method
+used to select in-context examples affects the pre-
+diction behaviour of the approaches.
+2 Background
+LLMs are transformer-based models shown to be
+capable of performing text-to-text tasks without
+task-specific training (Chung et al., 2022). This
+includes extractive question–answering, where the
+model is prompted to answer a question based on
+provided context.
+In vision–language research, VQA is a funda-
+mental task. One approach is to pass visual infor-
+mation to an LLM in the form of image captions
+(Yang et al., 2022; Guo et al., 2023; Hu et al., 2022;
+Tiong et al., 2022). The VQA task is then recast as
+an extractive QA task.
+Meanwhile in the field of computer vision, Doso-
+vitskiy et al. (2021) present the vision transformer
+(ViT). Radford et al. (2021) present a training ob-
+jective for the ViT, minimizing a contrastive loss
+between encoded images and captions. They dis-
+tribute CLIP models capable of transforming im-
+ages into generic feature representations.
+The primary challenge of integrating LLMs with
+ViT image encoders is to align features in the image
+and text space. Tsimpoukelli et al. (2021) fine-
+tune an image encoder by passing its output into
+a frozen LLM. A frozen model has weights that
+are not updated during training. They update the
+weights of the image encoder using image–caption
+training data. They evaluate on the task of VQA
+by appending embedded questions to the image
+embeddings and passing to an LLM.
+Merullo et al. (2023) achieve comparable re-
+sults using only a linear mapping between CLIP
+(Radford et al., 2021) image and GPT-J (Wang
+and Komatsuzaki, 2021) text space. Yi-Lin Sung
+(2022) and Eichenberg et al. (2022) add a small
+number of trainable parameters to the LLM, called
+adapters. These adapters are trainable MLP net-
+works inserted into the LLM transformer blocks.
+Alayrac et al. (2022) add masked cross-attention
+layers in the LLM to ensure each question only
+attends to the last set of image embeddings. Li
+et al. (2023) propose a system that includes the
+prompt question in a querying transformer network.
+Both of these systems require vast troves of training
+data.
+The above systems begin by learning an image
+captioning task. It is therefore a natural baseline to
+compare their embedding-based VQA approaches
+with that of using image captions generated by
+the same system. However, none of the aforemen-
+tioned systems report such results.
+3 Two approaches to VQA
+We will now outline our embedding-based and
+caption-based approaches to VQA. We keep our
+experiment controlled by using the same image fea-
+ture representation in both approaches. The only
+difference will be whether this visual feature repre-
+sentation is first converted into an image caption,
+or whether it is passed directly to the LLM.
+Both setups use a single trained model. This
+model is a ‘mapping network’, trained to bridge an
+image encoder and an LLM. The image encoder
+and the LLM will be frozen, and the parameters of
+the mapping network will be learnt by maximising
+the likelihood of target caption token sequences y,
+given an input image. Since the image encoder is
+frozen, this likelihood is equivalent to the likeli-
+hood of the target given the image encoder feature
+embedding x. This objective is given in Equation 1,
+expanded for an autoregressive language model.
+log p(y|x) =
+X
+l
+log p(yl|x, y1:l−1) (1)
+1. Image encoder (image to feature embed-
+ding) An image encoder encodes the image
+pixel value matrix i ∈ RW ×H×3 into a v-
+dimensional vector denoted by x.
+2. Mapping network (feature embedding to
+LLM image representation) A mapping net-
+work will map this feature embedding into k
+D-dimensional embeddings. Each of these
+embeddings is of the same dimensionality as
+a single embedded textual token.
+3. LLM (image representation to text output)
+These embeddings are passed to the LLM,
+generating an output token sequence y which
+is compared against a groundtruth caption.
+Our two approaches to VQA are as follows.
+Embedding-based The tokenizer and embedder
+of the LLM transform a question intot embeddings.
+An image is converted into k LLM embeddings of
+the same dimensionality using the image encoder
+and mapping network. The mapped image embed-
+dings and question embeddings are concatenated,
+and together passed to the LLM.
+Caption-based For caption-based VQA, the
+LLM image embeddings are passed alone to the
+LLM to generate an image caption. This textual
+image caption is then concatenated with the textual
+question, and this prompt is passed to the LLM.
+4 Experimental Setup
+Models We use Flan-T5 XL (Chung et al., 2022),
+a 3B parameter autoregressive encoder–decoder
+LLM. We selected this model because it has empir-
+ically been shown to perform well with in-context
+learning. To encode the images, we use a pre-
+trained CLIP ViT-G model (Radford et al., 2021;
+Ilharco et al., 2021; Schuhmann et al., 2022). We
+bridge these two components with a single hid-
+den layer mapping network with 1280-D input, a
+hidden layer of size 20 × 2048/2, and 20 2048-D
+output embeddings.
+Datasets We use the conceptual captions dataset
+(Sharma et al., 2018) as training data. From the
+3M+ image URLs provided in this dataset, we
+found 2.7M to be active.
+Training We minimize cross-entropy loss dur-
+ing training. We backpropagate losses through
+the frozen LLM, updating the mapping network
+with the AdamW optimizer (Kingma and Ba, 2014;
+Loshchilov and Hutter, 2017). For the optimizer,
+we use β = (0 .9, 0.98) and weight decay = 0 .01.
+The learning rate grows linearly to 2e-4 for 375
+warm-up steps and then decays linearly to zero for
+two epochs with a batch size of 32.
+In-context example selection Including samples
+of desired behaviour, expressed as input with cor-
+rect responses in the prompt, has been shown to
+improve performance (Yang et al., 2022). This
+is called in-context learning. In particular, ‘shots’
+refers to the number of samples included.
+To find the most similar in-context examples, we
+extract CLIP embeddings of the train and validation
+VQAv2 images and questions. We will compare
+selecting up to four in-context examples randomly
+(R), using only question similarity (Q) and joint
+(50-50) question and image similarity (Q+I). We
+use the inner product as our similarity metric, and
+pre-compute in-context examples efficiently using
+a FAISS index (Johnson et al., 2019).
+Metrics The system is validated few-shot on the
+VQA v2 benchmark (Agrawal et al., 2015; Zhang
+et al., 2015; Goyal et al., 2016), which includes
+214K image–question–answer validation triplets.
+We use the official evaluation metric, which cal-
+culates the number of exact matches between the
+predicted answer and the 10 human-annotated an-
+swers. The predicted answer scores if it matches
+exactly at least three human annotated answers. We
+# shots
+0 1 2 4
+Frozen 29.5 35.7 - 38.2 (1)
+Linear mapping 33.3 39.9 40.8 40.3 (2)
+MAGMA 36.9 42.2 43.8 45.4 (3)
+(R) 45.9 45.3 45.1 45.3 (4)
+Caption-based (Q) 45.9 47.6 48.0 48.5 (5)
+(Q+I) 45.9 50.0 50.3 50.8 (6)
+(R) 41.4 44.5 43.6 42.5 (7)
+Embedding-based (Q) 41.4 40.6 45.7 47.3 (8)
+(Q+I) 41.4 50.5 51.8 52.4 (9)
+Table 1: Few-shot VQAv2 results
+follow recent approaches and evaluate in the open-
+ended generation setting (Tsimpoukelli et al., 2021;
+Alayrac et al., 2022; Li et al., 2023).
+Our setup is implemented using the framework
+of Lin and Byrne (2022).
+We run each experiment once with a single ran-
+dom seed. We test the differences between our
+systems, competitors and baselines for significance
+with two-tailed paired permutation tests, approxi-
+mated by R = 10, 000, with threshold α = 0.01.
+Systems, competitors and baselines .
+We will compare results from our two ap-
+proaches to VQA, embedding-based and caption-
+based, with three systems of similar level of data
+and computation: Frozen (Tsimpoukelli et al.,
+2021), Linear mapping (Merullo et al., 2023) and
+MAGMA (Eichenberg et al., 2022). A comparison
+with these competitors is a sanity check to validate
+the suitability of our experimental setup.
+5 Results
+Table 1 gives results on the VQAv2 benchmark1.
+We can see that our systems pass the sanity check.
+Our best results for each of our two approaches
+to few-shot VQA (lines 6, 9) outperform all three
+competitor systems (lines 1-3) for all number of
+shots.
+Our results (lines 4-6 vs. lines 7-9) show that
+0-shot caption-based VQA is significantly better
+(+4.5%) than 0-shot embedding-based VQA. This
+is a surprising result, because the same visual rep-
+resentation is used in both approaches. The only
+difference is that in caption-based VQA, the em-
+beddings are first passed to the LLM alone to gen-
+1In 0-shot VQA, no in-context examples are included; so
+the random (R), question similarity (Q) and question + image
+similarity (Q+I) in-context example selection variations of our
+approaches are identical. We found all other differences to be
+significant (p<0.01).
+erate a caption, before being concatenated with the
+question. This result is a clear indication that the
+caption-based approach to VQA is an important
+comparison that should be made for systems that
+begin by learning the mapping between image and
+text space with an image captioning task.
+Our results (line 9) show a large improvement
+(+9.1%) between zero and 1-shot embedding-based
+VQA: where a single in-context example is in-
+cluded. The in-context example appears to demon-
+strate the task in a way that has a substantial im-
+provement to the VQA capability of the LLM. This
+is evidence of the in-context learning approach
+working well, enabling our system to adapt to the
+task of VQA without task-specific training.
+Furthermore, all our results from selecting in-
+context examples based on question (lines 5, 8) or
+question + image (lines 6, 9) similarity are signif-
+icantly better than selecting in-context examples
+randomly (lines 4, 7). Giving relevant (similar to
+the test question/image) examples is better than giv-
+ing random examples of the task. This is additional
+evidence that the in-context learning approach is
+performing as intended.
+In the 1-shot setting, the embedding-based (line
+9) approach is better than the caption-based ap-
+proach (line 6, +0.5%). This trend continues;
+the results improve by small margins, and the
+embedding-based approach is slightly better than
+using image captions, for 2- and 4-shots. The re-
+sults plateau with increasing number of in-context
+examples (shots), which aligns with prior works
+(Tsimpoukelli et al., 2021; Alayrac et al., 2022).
+We explored a range of comparisons between the
+caption-based and embedding-based approaches to
+compare their prediction behaviour. One way we
+did this was by varying how the in-context exam-
+ples are selected. Our main finding was that the
+two approaches vary in their responsiveness to the
+in-context examples.
+The most striking result is that of embedding-
+based VQA, when in-context examples are selected
+based on top question similarity (line 8). Here, two
+shots/in-context examples are required to demon-
+strate the task suitably; at this point, the improve-
+ment is still smaller than before (+4.3%). We find
+that the caption-based approach beats embedding-
+based VQA (line 5 vs. line 8) for all number of
+shots when the in-context example is selected based
+only on question similarity.
+We additionally explored the accuracy of our sys-
+tems in various specific question categories, such
+as those that ask for colour or counting informa-
+tion. Our analysis reveals that 4-shot VQA with
+the embedding-based approach correctly answers
+more questions requiring small visual details com-
+pared to the caption-based approach (e.g. colour:
++4.2%, counting: +2.7%), while compensating in
+straightforward questions (e.g. yes/no: -0.5%). For
+complex ‘why’ questions or location ‘where’ ques-
+tions, where our systems are weak, both demon-
+strate similar prediction behaviour.
+6 Limitations
+Our findings are applicable for the Flan-T5 XL
+LLM, which is not as large as other closed-source
+LLMs. Our tale may have been different for these
+models. In addition, we learn the mapping between
+image and text space using a non-linear network,
+rather than other methods such as that presented
+by Li et al. (2023). Instead we have presented a
+controlled and focused setup, with the intention of
+initiating an investigation of the caption-based and
+embedding-based approaches to few-shot VQA.
+7 Conclusion
+In this work, we have presented a focused com-
+parison of two approaches to few-shot VQA. A
+comparison of these two approaches has been over-
+looked in previous work. We learn a non-linear
+mapping between the CLIP and Flan-T5 XL em-
+bedding space, which enables us to generate both
+image captions and an embedding-based LLM im-
+age representation from the same system. Our re-
+sults indicate that, using this non-linear mapping
+and the relatively small frozen LLM, connecting
+visual embeddings directly to the LLM embedding
+space does not necessarily improve performance
+compared to using image captions. We find that
+the selection of relevant in-context examples is far
+more important. Overall in this work, we hope
+to have shown that reporting results with system-
+generated captions is an important comparison for
+multimodal systems that pass embedding-based vi-
+sual representations to LLMs.
+References
+Aishwarya Agrawal, Jiasen Lu, Stanislaw Antol, Mar-
+garet Mitchell, C. Lawrence Zitnick, Devi Parikh,
+and Dhruv Batra. 2015. VQA: Visual Question An-
+swering. International Journal of Computer Vision,
+123:4–31.
+Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc,
+Antoine Miech, Iain Barr, Yana Hasson, Karel
+Lenc, Arthur Mensch, Katherine Millican, Malcolm
+Reynolds, Roman Ring, Eliza Rutherford, Serkan
+Cabi, Tengda Han, Zhitao Gong, Sina Samangooei,
+Marianne Monteiro, Jacob L Menick, Sebastian
+Borgeaud, Andy Brock, Aida Nematzadeh, Sahand
+Sharifzadeh, Mikołaj Bi´nkowski, Ricardo Barreira,
+Oriol Vinyals, Andrew Zisserman, and Karén Si-
+monyan. 2022. Flamingo: a Visual Language Model
+for Few-Shot Learning. In Advances in Neural Infor-
+mation Processing Systems, volume 35, pages 23716–
+23736. Curran Associates, Inc.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-V oss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens
+Winter, Chris Hesse, Mark Chen, Eric Sigler, Ma-
+teusz Litwin, Scott Gray, Benjamin Chess, Jack
+Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. 2020.
+Language Models are Few-Shot Learners. In Ad-
+vances in Neural Information Processing Systems ,
+volume 33, pages 1877–1901. Curran Associates,
+Inc.
+Xi Chen, Xiao Wang, Soravit Changpinyo, A. J. Pier-
+giovanni, Piotr Padlewski, Daniel M. Salz, Sebas-
+tian Goodman, Adam Grycner, Basil Mustafa, Lu-
+cas Beyer, Alexander Kolesnikov, Joan Puigcerver,
+Nan Ding, Keran Rong, Hassan Akbari, Gaurav
+Mishra, Linting Xue, Ashish V . Thapliyal, James
+Bradbury, Weicheng Kuo, Mojtaba Seyedhosseini,
+Chao Jia, Burcu Karagol Ayan, Carlos Riquelme, An-
+dreas Steiner, Anelia Angelova, Xiaohua Zhai, Neil
+Houlsby, and Radu Soricut. 2022. PaLI: A Jointly-
+Scaled Multilingual Language-Image Model. ArXiv,
+abs/2209.06794.
+Hyung Won Chung, Le Hou, Shayne Longpre, Barret
+Zoph, Yi Tay, William Fedus, Yunxuan Li, Xuezhi
+Wang, Mostafa Dehghani, Siddhartha Brahma, Al-
+bert Webson, Shixiang Shane Gu, Zhuyun Dai,
+Mirac Suzgun, Xinyun Chen, Aakanksha Chowdh-
+ery, Alex Castro-Ros, Marie Pellat, Kevin Robinson,
+Dasha Valter, Sharan Narang, Gaurav Mishra, Adams
+Yu, Vincent Zhao, Yanping Huang, Andrew Dai,
+Hongkun Yu, Slav Petrov, Ed H. Chi, Jeff Dean, Ja-
+cob Devlin, Adam Roberts, Denny Zhou, Quoc V . Le,
+and Jason Wei. 2022. Scaling Instruction-Finetuned
+Language Models. ArXiv:2210.11416 [cs].
+Alexey Dosovitskiy, Lucas Beyer, Alexander
+Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+Thomas Unterthiner, Mostafa Dehghani, Matthias
+Minderer, Georg Heigold, Sylvain Gelly, Jakob
+Uszkoreit, and Neil Houlsby. 2021. An Image
+is Worth 16x16 Words: Transformers for Image
+Recognition at Scale. ICLR.
+Constantin Eichenberg, Sidney Black, Samuel Wein-
+bach, Letitia Parcalabescu, and Anette Frank. 2022.
+MAGMA – Multimodal Augmentation of Generative
+Models through Adapter-based Finetuning. In Find-
+ings of the Association for Computational Linguistics:
+EMNLP 2022, pages 2416–2428, Abu Dhabi, United
+Arab Emirates. Association for Computational Lin-
+guistics.
+Yash Goyal, Tejas Khot, Douglas Summers-Stay, Dhruv
+Batra, and Devi Parikh. 2016. Making the V in VQA
+Matter: Elevating the Role of Image Understanding
+in Visual Question Answering. International Journal
+of Computer Vision, 127:398–414.
+Jiaxian Guo, Junnan Li, Dongxu Li, Anthony
+Meng Huat Tiong, Boyang Li, Dacheng Tao, and
+Steven C. H. Hoi. 2023. From Images to Textual
+Prompts: Zero-shot VQA with Frozen Large Lan-
+guage Models. ArXiv:2212.10846 [cs].
+Yushi* Hu, Hang* Hua, Zhengyuan Yang, Weijia Shi,
+Noah A Smith, and Jiebo Luo. 2022. Prompt-
+Cap: Prompt-Guided Task-Aware Image Captioning.
+arXiv preprint arXiv:2211.09699.
+Shaohan Huang, Li Dong, Wenhui Wang, Yaru Hao,
+Saksham Singhal, Shuming Ma, Tengchao Lv, Lei
+Cui, Owais Khan Mohammed, Qiang Liu, Kriti Ag-
+garwal, Zewen Chi, Johan Bjorck, Vishrav Chaud-
+hary, Subhojit Som, Xia Song, and Furu Wei. 2023.
+Language Is Not All You Need: Aligning Perception
+with Language Models. ArXiv, abs/2302.14045.
+Gabriel Ilharco, Mitchell Wortsman, Ross Wightman,
+Cade Gordon, Nicholas Carlini, Rohan Taori, Achal
+Dave, Vaishaal Shankar, Hongseok Namkoong, John
+Miller, Hannaneh Hajishirzi, Ali Farhadi, and Lud-
+wig Schmidt. 2021. Openclip.
+Jeff Johnson, Matthijs Douze, and Hervé Jégou. 2019.
+Billion-scale similarity search with GPUs. IEEE
+Transactions on Big Data, 7(3):535–547.
+Diederik P. Kingma and Jimmy Ba. 2014. Adam:
+A Method for Stochastic Optimization. CoRR,
+abs/1412.6980.
+Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi.
+2023. BLIP-2: bootstrapping language-image pre-
+training with frozen image encoders and large lan-
+guage models. In International Conference on Ma-
+chine Learning.
+Weizhe Lin and Bill Byrne. 2022. Retrieval augmented
+visual question answering with outside knowledge.
+In Proceedings of the 2022 Conference on Empiri-
+cal Methods in Natural Language Processing , pages
+11238–11254, Abu Dhabi, United Arab Emirates. As-
+sociation for Computational Linguistics.
+Jiachang Liu, Dinghan Shen, Yizhe Zhang, Bill Dolan,
+Lawrence Carin, and Weizhu Chen. 2022. What
+makes good in-context examples for GPT-3? In
+Proceedings of Deep Learning Inside Out (DeeLIO
+2022): The 3rd Workshop on Knowledge Extrac-
+tion and Integration for Deep Learning Architectures,
+pages 100–114, Dublin, Ireland and Online. Associa-
+tion for Computational Linguistics.
+Ilya Loshchilov and Frank Hutter. 2017. Decoupled
+Weight Decay Regularization. In International Con-
+ference on Learning Representations.
+Jack Merullo, Louis Castricato, Carsten Eickhoff, and
+Ellie Pavlick. 2023. Linearly Mapping from Image
+to Text Space. ArXiv:2209.15162 [cs].
+Ron Mokady, Amir Hertz, and Amit H. Bermano.
+2021. ClipCap: CLIP Prefix for Image Captioning.
+ArXiv:2111.09734 [cs].
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-
+try, Amanda Askell, Pamela Mishkin, Jack Clark,
+Gretchen Krueger, and Ilya Sutskever. 2021. Learn-
+ing Transferable Visual Models From Natural Lan-
+guage Supervision. In International Conference on
+Machine Learning.
+Christoph Schuhmann, Romain Beaumont, Richard
+Vencu, Cade W Gordon, Ross Wightman, Mehdi
+Cherti, Theo Coombes, Aarush Katta, Clayton
+Mullis, Mitchell Wortsman, Patrick Schramowski,
+Srivatsa R Kundurthy, Katherine Crowson, Lud-
+wig Schmidt, Robert Kaczmarczyk, and Jenia Jitsev.
+2022. LAION-5b: An open large-scale dataset for
+training next generation image-text models. InThirty-
+sixth Conference on Neural Information Processing
+Systems Datasets and Benchmarks Track.
+Piyush Sharma, Nan Ding, Sebastian Goodman, and
+Radu Soricut. 2018. Conceptual Captions: A
+Cleaned, Hypernymed, Image Alt-text Dataset For
+Automatic Image Captioning. In Proceedings of the
+56th Annual Meeting of the Association for Compu-
+tational Linguistics (V olume 1: Long Papers), pages
+2556–2565, Melbourne, Australia. Association for
+Computational Linguistics.
+Anthony Meng Huat Tiong, Junnan Li, Boyang Li, Sil-
+vio Savarese, and Steven C.H. Hoi. 2022. Plug-and-
+Play VQA: Zero-shot VQA by Conjoining Large Pre-
+trained Models with Zero Training. In Findings of the
+Association for Computational Linguistics: EMNLP
+2022, pages 951–967, Abu Dhabi, United Arab Emi-
+rates. Association for Computational Linguistics.
+Maria Tsimpoukelli, Jacob Menick, Serkan Cabi,
+SM Eslami, Oriol Vinyals, and Felix Hill. 2021. Mul-
+timodal few-shot learning with frozen language mod-
+els. Proc. Neural Information Processing Systems.
+Ben Wang and Aran Komatsuzaki. 2021. GPT-J-
+6B: A 6 Billion Parameter Autoregressive Lan-
+guage Model. https://github.com/kingoflolz/
+mesh-transformer-jax.
+Zirui Wang, Jiahui Yu, Adams Wei Yu, Zihang Dai,
+Yulia Tsvetkov, and Yuan Cao. 2021. SimVLM: Sim-
+ple Visual Language Model Pretraining with Weak
+Supervision. ArXiv, abs/2108.10904.
+Zhengyuan Yang, Zhe Gan, Jianfeng Wang, Xiaowei Hu,
+Yumao Lu, Zicheng Liu, and Lijuan Wang. 2022. An
+Empirical Study of GPT-3 for Few-Shot Knowledge-
+Based VQA. In AAAI.
+Mohit Bansal Yi-Lin Sung, Jaemin Cho. 2022. VL-
+Adapter: Parameter-Efficient Transfer Learning for
+Vision-and-Language Tasks. In CVPR.
+Peng Zhang, Yash Goyal, Douglas Summers-Stay,
+Dhruv Batra, and Devi Parikh. 2015. Yin and Yang:
+Balancing and Answering Binary Visual Questions.
+2016 IEEE Conference on Computer Vision and Pat-
+tern Recognition (CVPR), pages 5014–5022.

@@ -1,0 +1,1069 @@
+Latent Communication Between Language Model
+Agents:
+Channels, Alignment, and the Limits of Text
+[Markus Wenzel]
+[Constructor University]
+[mwenzel@constructor.university]
+Abstract
+Multi-agent systems (MAS) are utilized in many contexts ranging from private personal assistants over supportive
+tools in many professions to independent or human-steered research systems. Those MAS rely on inter-agent
+communication, usually implemented by clear-text message passing. We hypothesize that Large Language Models
+may have a world model at their disposal that exceeds expressibility in text when complex concepts need to be
+communicated. Our aim is to approach a proof of this hypothesis with structured experiments.
+In this work, we show that LLM agents communicating via text lose information, which we quantify via Sparse
+Autoencoder (SAE) feature analysis. We construct three communication channels ("dense latent" directly injecting
+the LLM’s internal representation, "SAE-sparse" transferring a sparse code, and "text" being the usual prompt) and
+measure concept-discriminating information in each. We first show that the SAE-sparse channel retains a 99.4% probe
+accuracy at 28-fold compression over the dense-latent channel vs 80.4% for the text channel.
+We then proceed to examine the same for cross-architecture communication by using sparse latent space alignment.
+We find even for a simple Procrustes alignment a 92% top-1 retrieval between Llama and Mistral. Using a text
+round-trip (serialize and re-encode), we perform feature survival analysis to find that text serialization destroys
+88% of SAE features, replacing them with a different feature set. We attribute the loss toidentity replacement, not
+attenuation, but also find that the lost features do not carry the bulk of semantic information. By our analysis, we
+were able to attribute a 3–10pp performance penalty to the linear Procrustes alignment. These numbers improve with
+nonlinear alignment methods.
+We lastly progress to a task-level evaluation, finding that the latent channel matches the text channel on cross-lingual
+concept tasks but never exceeds it. In our framework, text augmentation with latent features provides no benefit,
+leading us to negative conclusions for the initial hypothesis: lost features mostly or completely encode surface form,
+not task-relevant semantics. However, representational convergence between architectures is real and potentially
+exploitable. To pinpoint the practical advantage of latent communication over a text channel, deeper tasks eliciting
+complex concepts and an corresponding analysis framework are needed which are both beyond our current approach.
+1. Introduction
+Multi-Agent Systems utilizing Large Language Mod-
+els (LLMS) as atomic Agents have become a central
+paradigm in applied AI, with frameworks such as
+AutoGen and CrewAI enabling complex pipelines in
+which multiple agents collaborate to solve tasks. In
+virtually all current implementations, agents commu-
+nicate by exchanging natural language messages or
+structured information expressed in JSON etc. In
+this communication paradigm, agents generate and
+read messages transported in plain text. This bears
+advantages: text is human-readable, debuggable, and
+compatible with any model that understands lan-
+guage.
+We hypothesize that text communication might
+be lossy in a way limiting inter-agent communica-
+tion. When an agent processes a complex input and
+forms a high-dimensional internal representation of a
+concept, it must compress that representation into a
+sequence of tokens before another agent can receive
+it. The receiving agent then reconstructs its own
+internal representation from those tokens. Nothing
+guarantees that the two representations are equiv-
+alent, or even similar. Our contribution seeks to
+quantify how much is lost, whether the loss matters,
+and whether a better alternative exists.
+A compelling recent hypothesis suggests that the
+loss may be structurally bounded. The Platonic
+Representation Hypothesis [1] proposes that diverse
+1
+arXiv:2607.14103v1  [cs.CL]  6 May 2026
+neural networks trained on sufficient data converge
+toward compatible representational geometries — a
+shared latent world model that emerges indepen-
+dently of architecture or training objective. If this
+is true, two language models will develop activation
+spaces that are geometrically alignable, potentially
+enabling direct latent-space communication that by-
+passes the text bottleneck entirely.
+This paper pursues the testing of alternative com-
+munication channel systematically. We construct and
+compare three communication channels — "dense la-
+tent" (the full activation vector), "SAE-sparse" (a
+sparse bottleneck via pre-trained Sparse Autoen-
+coders, SAEs), and text (the standard text-based con-
+cept serialization baseline) — and measure how much
+concept-discriminating information each preserves.
+We characterize information loss at the SAE feature
+level (associated with Claim 2 below – C2), measure
+channel fidelity via linear probes (C1), and test cross-
+architecture latent communication via Procrustes
+alignment (C3). Finally, we evaluate all channels on
+a battery of concept-identification and discrimina-
+tion tasks, including cross-lingual variants designed
+to favour the architecture-agnostic structure of the
+latent channel.
+Our findings are nuanced. Representational con-
+vergence between Llama 3.1 8B-Instruct and Mistral
+7B is unambiguously confirmed: Procrustes-aligned
+dense vectors achieve 92% top-1 concept retrieval
+at 140 anchor concepts, against a 0.87% random
+baseline. SAE feature analysis reveals that text se-
+rialization destroys 88% of original SAE features —
+but augmentation experiments establish that these
+lost features encode surface form rather than task-
+relevant semantics. On every tested task type, the
+text channel matches or outperforms the latent chan-
+nel by 3–10pp. We present this as an honest negative:
+the infrastructure for latent communication is sound,
+but a practical advantage over text requires tasks
+beyond current textual expressibility.
+Our experiments follow a gated sequence designed
+to isolate the contribution of each component. Two
+prerequisitegatesmust pass before the main claims
+are tested: semantic concepts must be linearly sepa-
+rable in the sender’s activation space, and the SAE
+feature space must faithfully capture semantic re-
+latedness (§3.1). We then evaluate three claims:
+C1, that the SAE-sparse channel preserves concept-
+discriminating information lost by text (method de-
+scription in §2.4, results in §3.2);C2, characterising
+what exactly text serialisation destroys at the feature
+level (§2.5, §3.3); andC3, that cross-architecture
+alignment enables latent communication between sep-
+arately trained models (§2.6, §3.4). Task-level eval-
+uation tests whether these representation-level dif-
+ferences translate to downstream performance (§2.7,
+§3.5), and text augmentation resolves the consequen-
+tial question: do the features that text destroys carry
+suppressed semantic content (§2.8, §3.6)?
+Related work and own contributions
+Representational convergence.The Platonic
+Representation Hypothesis [1] proposes that neural
+networks with sufficient capacity converge toward
+a shared kernel estimating the statistical structure
+of the world. Cherti et al. [8] provide complemen-
+tary evidence from vision-language models: CLIP
+models trained at increasing scale show monotoni-
+cally improving agreement between independently
+trained runs, consistent with convergence toward a
+shared representation. Within a single architecture,
+Gromov et al. [9] find that deeper layers in large
+transformers can be pruned with minimal perfor-
+mance degradation, implying that representational
+geometry stabilises well before the final layer. De-
+spite these convergence trends, the direct implica-
+tions for cross-architecture communication have not
+been tested quantitatively. Our cross-architecture
+alignment experiment measures convergence in a re-
+trieval accuracy benchmark. If our two models in-
+deed share representational structure (share a world
+model), a rotation of the embedding space fitted
+on a small anchor set should generalise to unseen
+concepts with far above-chance retrieval. This pro-
+vides a hard threshold against which convergence
+can be evaluated, modeled as an initial gate in our
+experiments.
+Model stitching and linear representation
+transfer.Lenc & Vedaldi [3] and Bansal et al. [2]
+demonstrated that internal representations of deep
+networks can be aligned by learned linear maps, en-
+abling functional transfer across separately trained
+models. Orthogonal Procrustes was first applied to
+word embeddings by Smith et al. [10], who showed
+that bilingual dictionaries can be induced by align-
+ing monolingual embedding spaces with an orthog-
+onal map and inverted-softmax retrieval. Conneau
+& Lample [11] removed the need for seed dictio-
+naries entirely, using adversarial training followed
+by Procrustes refinement to achieve unsupervised
+cross-lingual word embedding alignment. Our set-
+ting differs from both model stitching and embedding
+alignment in two respects: there is no shared task
+loss between sender and receiver, and our goal is
+lossless semantic communication rather than func-
+tional substitution or word translation. The Pro-
+2
+crustes alignment we use is rotation-only — a strictly
+orthogonal map — which tests a stronger form of
+geometric compatibility than general linear stitching,
+extending the embedding-level work of Smith et al.
+and Conneau & Lample to contextual hidden states
+of LLMs.
+Mechanistic interpretability and Sparse Au-
+toencoders.The theoretical motivation for sparse
+factorisation comes from superposition: Elhage et
+al. [12] demonstrated that neural networks can rep-
+resent more features than they have dimensions by
+encoding them in almost-orthogonal directions, gov-
+erned by feature sparsity and importance. This
+means that a 4,096-dimensional residual stream
+may encode tens of thousands of features simulta-
+neously — explaining why SAE dictionaries must
+be substantially overcomplete (131K features for 4K-
+dimensional activations in our setup). Bricken et
+al. [4] and Cunningham et al. [5] showed that pre-
+trained SAEs factorise these superposed representa-
+tions into near-monosemantic features, primarily as
+a tool for circuit-level reverse engineering of model
+computation. Templeton et al. [13] scaled SAEs to
+production models (Claude 3 Sonnet) and found that
+the resulting features are abstract, multilingual, and
+multimodal — suggesting that SAE features capture
+semantic content rather than surface form, which
+is the assumption underlying our feature survival
+analysis. We repurpose SAEs here as a measure-
+ment instrument: comparing the sparse feature sets
+elicited by two encoding paths for the same concept
+characterises text-channel information loss at feature
+resolution — distinguishing attenuation from replace-
+ment in a way that dense-space cosine similarity alone
+cannot provide.
+Cross-lingual representation alignment.Con-
+neau et al. [6] established that multilingual pretrain-
+ing produces cross-lingually aligned representations
+— the same concept in different languages occupies
+compatible regions of a shared embedding space.
+Pires et al. [14] showed that this alignment emerges
+even in Multilingual BERT without an explicit align-
+ment objective, attributing it to shared wordpieces
+and parameter sharing — a further instance of con-
+vergent geometry arising from overlapping training
+statistics. Our cross-architecture alignment is struc-
+turally analogous but operates along a different axis:
+where cross-lingual alignment tests whether a sin-
+gle model represents the same concept consistently
+across languages, we test whether two different ar-
+chitectures do so in geometrically compatible ways.
+Both reflect invariances induced by shared training
+statistics; the architectural case is the stronger test
+because it imposes no joint training objective what-
+soever.
+Emergent communication and latent injection.
+Kottur et al. [15] showed that agents in referen-
+tial games develop effective but non-compositional
+communication protocols; natural language does
+not emerge without explicit structural constraints.
+This motivates exploring alternatives to emergent
+signalling: rather than learn communication from
+scratch, our channels leverage the shared geometry
+that emerges from independent pretraining. On the
+mechanistic side, Lester et al. [16] demonstrated that
+frozen language models can be steered by learned
+soft prompts — continuous vectors prepended to the
+input embedding sequence. Our latent injection pro-
+tocol is analogous: the receiver model is frozen and
+the sender’s activation vector is injected at a single
+layer position, testing whether pre-existing represen-
+tational compatibility can substitute for the task-
+specific optimisation that prompt tuning requires.
+2. Methods
+2.1. Activation Extraction
+We use Llama 3.1 8B-Instruct as the sender model
+and Mistral 7B (base v0.1 and instruction-tuned
+v0.3) as the receiver. Activations are extracted at
+approximately 72–75% of total depth: layer 23 of
+Llama and layer 24 of Mistral, further referred to as
+the "extraction layer". This depth is motivated by
+prior work showing that intermediate-to-late layers
+carry the highest density of semantic information.
+Activations are extracted as the last-token hidden
+state of the residual stream in bf16 precision, yielding
+4,096-dimensional vectors for both models.
+2.2. Dataset
+Our concept dataset comprises 84 hand-curated
+concept pairs across four semantic categories (fac-
+tual, abstract, overlap, and context-dependent), with
+the overlap label deliberately distributed across
+categories to prevent category-to-label confounds.
+Each concept is paired with two or more cloze-style
+prompts that elicit the concept in naturalistic con-
+text — for example, the conceptPhotosynthesisis
+paired with the prompt “The process by which plants
+convert sunlight into glucose is called .” The
+model processes each prompt and the last-token hid-
+den state at the extraction layer is taken as the
+concept’s representation for that prompt. English
+3
+Figure 1:LLama 3.1 8B offers different positions from which representations can be tapped. Of those, R is the most
+well researched which is used in this work.
+pairs constitute 76% of the dataset, supplemented
+by multilingual subsets in German, French, Spanish,
+and Mandarin Chinese. For task-level evaluation
+(§2.7), the dataset was expanded to 163 concepts
+with an average of 4.7 validated prompts per concept,
+plus 112 attribute/sense-disambiguation tasks and
+107 cross-lingual tasks.
+2.3. Communication Channels
+Throughout this paper,senderis the LLM agent that
+holds a concept representation it wishes to communi-
+cate;receiveris the agent that must identify or act on
+that concept;transmissionis the operation by which
+the sender’s internal representation is converted into
+the format required by a given channel and deliv-
+ered to the receiver. Bandwidth figures represent
+the minimum bits needed to faithfully represent the
+transmitted object, not end-to-end network through-
+put.
+Dense latent channel.Transmits the sender’s
+full residual-stream hidden state at layer 23 — a
+4,096-dimensional bf16 vector (65,536 bits). This
+channel incurs zero information loss by construction
+and serves as the performance ceiling.
+SAE-sparse channel.First compresses the
+sender’s hidden state through a pre-trained SAE [4]
+with 131,072 latent dimensions and∼70 active fea-
+tures per forward pass. Only the indices and ac-
+tivation magnitudes of active features are trans-
+mitted — approximately 2,300 bits, a 28×com-
+pression relative to dense. The SAE weights
+used are andyrdt/saes-llama-3.1-8b-instruct,
+resid_post_layer_23_trainer_1. Only the pre-
+trained SAE decoder needs to be shared between
+agents for decoding — not the full sender LLM.
+Text channel.The standard inter-agent baseline.
+The sender serialises the concept as its name string
+(which means it predicts and outputs the "next word"
+as a string); the receiver processes that string through
+the model and extracts the resulting hidden state at
+layer 23. This channel requires no model alignment
+infrastructure.
+The channels differ in what is transmitted, but in
+all cases the representation used for evaluation is a
+4,096-dimensional hidden-state vector. For probe-
+based evaluation (§2.4) and task-level evaluation
+(§2.7), this vector is compared geometrically to refer-
+ence vectors — no injection into a running model’s
+forward pass occurs. The SAE-sparse channel differs
+from the dense channel only in that the vector passes
+through an encode–decode bottleneck: the sparse
+code (feature indices and magnitudes) is decoded
+back to a dense approximation via the SAE decoder
+matrix. The text channel is the only channel that
+4
+Figure 2:Illustration of communication channels used: Text channel transports concept names or descriptions, the
+dense latent channel transports the last token internal representation, and the SAE latent channel transports the
+sparse most activating neurons.
+re-encodes entirely: the concept string is processed
+by the receiver model from scratch, producing a new
+hidden state that is then used for comparison.
+2.4. Linear Probes and Channel Fidelity (C1)
+In our first claim, we want to elucidate how well
+the three channels maintain distinctive features in
+the hidden state representations after transmitting a
+concept from sender to receiver through the channel.
+For this, we train logistic regression classifiers on
+ground-truth sender representations and then tested
+on versions transmitted through a given channel.
+We call these logistic regression classifierslinear
+probes. Given a number of activations{h(i)
+A}from
+prompts eliciting concept A and{h(i)
+B}from con-
+cept B, the probe learns a linear separating hyper-
+plane.Probe accuracymeasures how much concept-
+discriminative information a transmitted representa-
+tion retains.
+2.5. SAE Feature Survival Analysis (C2)
+To characterise text-channel information loss at the
+Sparse Autoencoder (SAE) feature level, we define
+atext round-trip(details to follow below): a con-
+cept is first represented in activation space via a
+contextual prompt, then, secondly, re-encoded by
+the same model, but this time reduced to the bare
+concept name, and the resulting representation is
+compared with the original. By then encoding both
+paths through the SAE, we identify which individ-
+ual features survive the round-trip and which are
+replaced.
+Step 1 — Contextual encoding.Cloze-style
+prompts elicit each concept in rich context (e.g., “The
+process by which plants convert sunlight into glucose
+is called .”). Each prompt is processed through
+Llama 3.1 8B-Instruct; the last-token hidden state
+at layer 23 is extracted and SAE-encoded. Multiple
+prompts per concept were represented, and the stable
+SAE features recorded. Over all concepts, we find a
+per-concept average of∼43 features out of the total
+131,072 SAE features to be active. Compared to the
+about 70 active features of one individual forward
+pass, we infer that the remainder are not concept-
+specific.
+Step 2 — Text-channel encoding.The bare
+concept name (e.g.,"Photosynthesis") is processed
+through the same model; the last-token hidden state
+at layer 23 is SAE-encoded, again yielding∼43 active
+features.
+Step 3 — Feature set comparison.For each
+concept we compute: feature survival rate, Jaccard
+5
+overlap, cosine similarity in SAE space, and Pearson
+correlation between original and text-channel feature
+magnitudes.
+The fact that both paths produce similar-sized
+feature sets but nearly disjoint memberships is the
+central finding of this analysis.
+2.6. Cross-Architecture Alignment (C3)
+Activation spaces are coordinate systems: two mod-
+els may encode the same concept as particular di-
+rections in their respective 4,096-dimensional spaces,
+but nothing forces those directions to coincide. If
+the two spaces are nonetheless geometrically com-
+patible — rotated versions of each other — a single
+rotation matrix can recover the correspondence from
+a modest number of paired concept vectors. These
+pairs, drawn from concepts whose representations
+have been extracted from both models, are called
+anchorconcepts; concepts withheld from the anchor
+set serve as the held-out test of whether the esti-
+mated rotation generalises beyond the examples it
+was fitted on.
+We test whether two architecturally distinct mod-
+els encode concepts in compatible geometric arrange-
+ments via Orthogonal Procrustes alignment. For
+each anchor concept, both models produce a mean
+concept vector (averaged over all available prompts).
+The Procrustes problem finds the rotation matrix
+R∗ = arg min
+R:R ⊤R=I
+∥XR−Y∥F (1)
+where X and Y are the sender and receiver anchor
+matrices. The fitted rotation is applied to held-out
+concept vectors, and retrieval accuracy is measured
+by nearest-neighbour lookup in the receiver’s space.
+We sweep the anchor count from 50 to 140 and
+evaluate holdout cosine similarity, top-1 and top-
+5 retrieval accuracy, and cross-architecture probe
+transfer on held-out concepts. We compare base
+Mistral (v0.1) and instruction-tuned Mistral (v0.3)
+to test whether instruction tuning affects geometric
+compatibility.
+2.7. Task-Level Evaluation Protocol
+While probe accuracy (§2.4) measures discriminabil-
+ity in a controlled pairwise setting with access to
+labelled representations, it does not reflect inference-
+time conditions. Firstly, a receiver agent neither
+trains a new classifier for each incoming concept to
+probe if it is different from others, nor has it access
+to labelled sender vectors. Therefore, we propose
+to implement a protocol that is free of such require-
+ments. The following multiple-choice (MC) protocol
+is designed to mimic the realistic zero-shot setting
+more closely.
+Evaluation mechanism.For each task, one con-
+cept is transmitted from sender to receiver through
+a given channel, producing a query vectorhquery in
+the receiver’s activation space (Procrustes-mapped
+for latent channels; re-encoded by the receiver model
+from scratch for the text channel). Separately, the
+receiver pre-caches a reference vector for each of four
+candidate concept names by encoding each candi-
+date as a bare name string through its own model
+and extracting the last-token hidden state at layer
+24. The receiver then scores all four candidates by
+cosine similarity betweenhquery and each candidate’s
+cached reference vector. The highest-scoring candi-
+date is taken as the answer. No joint forward pass
+over query and candidates occurs; the evaluation is
+purely a nearest-neighbour retrieval in the receiver’s
+activation space.
+Channels and baselines.All three channels de-
+fined in §2.3 are evaluated, with the text channel
+split into two variants to separate the effect of con-
+text: (1)dense latent: the full sender hidden state,
+Procrustes-mapped; (2)SAE latent(i.e., the SAE-
+sparse channel): the SAE encode–decode reconstruc-
+tion, Procrustes-mapped; (3)text-passage: the
+receiver encodes a full descriptive passage — e.g.
+“The process by which plants convert sunlight into
+glucose is called Photosynthesis” — and extracts its
+own last-token hidden state; (4)text-name: the
+receiver encodes only the bare concept name, e.g.
+“Photosynthesis”; and (5)no-comm: a baseline in
+which no signal is transmitted and the receiver scores
+candidates using only its cached reference vectors
+without any query, expected to perform at chance.
+Statistical significance is assessed via one-sided
+binomial test against the 25% chance baseline, which
+corresponds to four uniformly presented candidates
+with no prior over the correct answer, such that a
+receiver that ignores the transmitted signal entirely
+and answers uniformly at random will be correct 25%
+of the time in expectation.
+2.8. Text Augmentation Protocol
+The task-level results (§2.7) reveal a consistent 3–
+10pp gap in which the text-passage channel out-
+performs the latent channel. Two hypotheses could
+explain this: (a) the Procrustes alignment introduces
+geometric distortion that corrupts the concept-level
+signal, in which case adding aligned sender infor-
+mation to the receiver’s text representation should
+6
+partially close the gap; or (b) the receiver’s native
+text processing extracts additional task-relevant sig-
+nal from the passage that is simply absent from the
+sender’s latent state, in which case augmentation
+provides no benefit. Rather than treating the latent
+channel as a replacement for text, the augmentation
+protocol treats it as a candidate complement and
+adjudicates between these hypotheses.
+The augmented representation is formed as
+haug =h text +α·R∗hsender (2)
+where α∈{0.01, 0.05, 0.1, 0.2, 0.5, 1.0}is a mixing
+coefficient. Four variants ofhsender are tested: the
+full dense hidden state; the full SAE encode-decode
+reconstruction; the top-32 SAE features only; and the
+lost features— those active in contextual encoding
+but absent from bare-name encoding.
+3. Results
+3.1. Single-Model Baselines (Prerequisite
+Gates)
+Before testing the main claims (C1–C3), we verify
+two prerequisite gates: that semantic concepts are lin-
+early separable in activation space, and that the SAE
+feature space faithfully captures semantic relatedness.
+Logistic regression probes trained on layer 15 acti-
+vations achieve 100% binary classification accuracy
+on all 84 concept pairs in the hand-curated dataset,
+confirming linear separability. Activation steering —
+injecting the probe’s learned normal vector into the
+residual stream at scaleα= 10— produces causal
+concept flips (e.g., “Paris” generative outputs shift to
+“London”), confirming causal responsibility of probe
+directions. Saturation and semantic degradation oc-
+cur predictably atα≥50.
+At the SAE feature level, semantically related con-
+cept pairs activate significantly more overlapping
+features than unrelated pairs:∆ cos = +0.319at
+layer 23, positive at all seven tested layers (3, 7, 11,
+15, 19, 23, 27). This confirms that the SAE feature
+space faithfully encodes semantic relatedness and
+is a valid measurement instrument for the channel
+analysis that follows.
+3.2. Channel Fidelity (C1)
+Using the linear probes described in §2.4, Table 1
+summarises the three channels across probe accuracy,
+bandwidth, and compression.
+TheSAE-sparsechannelpreservesnear-perfectcon-
+cept discriminability (99.4%) at 28×compression.
+The text channel achieves only 80.4%, a 19.4pp gap.
+T able 1:Channel fidelity across probe accuracy and
+bandwidth.
+Channel Probe Acc. Bandwidth Compression
+Dense100.0±0.0% 65,536 b 1×
+SAE-sparse99.4±3.8%∼2,300 b 28×
+Text80.4±24.4%∼53 b 1,236×
+A generation injection test — SAE-decoded vectors
+injected into the residual stream of a neutral prompt
+at layer 23 — produces the correct concept name
+in 39.3% of cases (33/84 injections), a conservative
+lower bound.
+On an information-per-bit basis, text is more effi-
+cient: 80.4% accuracy at 53 bits vs. 99.4% at 2,300
+bits. However, text faces an absolute ceiling at∼80%,
+imposed not by bandwidth but by the representa-
+tional gap examined next.
+3.3. Feature Survival Analysis (C2)
+Text round-tripping (§2.5) does not attenuate the
+original features — it replaces them. Table 2 sum-
+marises the survival statistics across 165 concepts.
+T able 2:SAE feature survival after text round-trip (165
+concepts).
+Metric Mean Std
+Feature survival rate 11.7%±6.3%
+Feature loss rate 88.3%±6.3%
+Jaccard overlap 5.8%±2.6%
+SAE-space cosine 0.187±0.116
+Magnitude correlation 0.326±0.587
+The distinction between attenuation and identity
+replacement is critical. Under attenuation, the same
+features would survive at reduced magnitude — weak
+signals falling below an activation threshold. The
+data rule this out: lost features have mean activa-
+tion magnitude 2.36, compared to 2.46 for survived
+features — statistically indistinguishable. Features
+are not disappearing because they are weak; they
+are disappearing because the input (the bare concept
+name in isolation) simply does not activate them.
+Text encoding moves the representation to a different
+neighbourhood of the 131K-dimensional SAE feature
+space entirely, one encoding how the model processes
+a token label rather than a concept in context. Fig-
+ure 3 visualises this displacement via UMAP em-
+bedding of the full SAE feature vectors: contextual
+and bare-name representations of the same concept
+occupy distinct regions of SAE feature space, con-
+7
+sistent with wholesale relocation rather than local
+perturbation.
+The term “surface form” as used throughout this
+paper encompasses three distinct components of the
+lost features. First,tokenisation artifacts: sub-
+word chunking differs across models — the same
+concept string produces different byte-pair encoding
+(BPE) splits in the sender and receiver tokenisers,
+yielding model-specific embedding patterns that en-
+codehow the input was tokenisedrather thanwhat it
+means. Second,prompt-structural features: the
+template surrounding the concept (system tokens,
+turn markers, padding) activates features that reflect
+the model’s processing context rather than concept
+semantics. Six SAE features are destroyed 100% of
+the time across all 165 concepts, with appearances
+in 58–111 concepts each — candidate features for
+exactly this prompt-structural role. Third,posi-
+tional encoding effects: the concept’s position
+within the prompt modulates which features activate,
+introducing position-dependent activation patterns
+that are neither semantic nor transferable across ar-
+chitectures. Because different models process the
+same input differently (different tokenisers, attention
+patterns, positional encodings), these three compo-
+nents are inherently model-specific — they would
+act as noise if transferred cross-architecture, not as
+semantic signal.
+The survival rate correlates modestly with text-
+channel probe accuracy (Pearsonr = 0.26): concepts
+retaining more features through text encoding tend
+to be more discriminable. The modest magnitude
+indicates that the geometric arrangement of surviv-
+ing features matters as much as their count. The
+augmentation experiment (§3.6) provides the deci-
+sive evidence on what these lost features encode:
+when re-injected into the receiver’s representation,
+they reduce performance, confirming that the fea-
+tures destroyed by text serialisation carry surface
+form — tokenisation artifacts, prompt structure, and
+positional encoding effects — rather than concept-
+discriminative semantics.
+The per-concept SAE cosine similarity distribution
+(Figure 4) shows a right-skewed distribution with
+mean 0.187 and range [∼0.02,∼0.55], confirming
+that identity replacement is the norm rather than
+the exception, though a small tail of concepts retains
+modest feature overlap through the text round-trip.
+3.4. Cross-Architecture Alignment (C3)
+Following the Procrustes methodology described in
+§2.6, unaligned cosine similarity between Llama and
+Mistral concept vectors is−0.002, indistinguishable
+from random. After Procrustes alignment, dense
+top-1 retrieval scales strongly with anchor count (Ta-
+ble 3).
+T able 3:Procrustes alignment retrieval vs. anchor count
+(Llama→Mistral base v0.1).
+nanchors HoldoutnCos Top-1 Top-5
+50 115 0.416 43.5% 81.7%
+80 85 0.491 75.3% 94.1%
+100 65 0.517 84.6% 96.9%
+120 45 0.529 82.2% 97.8%
+140 25 0.530 92.0% 100%
+At 100 anchors, retrieval reaches 84.6% top-1 —
+97×above the 0.87% random baseline. The SAE-
+reconstructed channel scales in parallel (72.3%→
+80.0% top-1 at 100→140 anchors), confirming that
+cross-architecture geometric structure survives the
+sparse bottleneck.
+Base Mistral (v0.1) aligns slightly better than
+instruction-tuned Mistral (v0.3) at every anchor
+count (92.0% vs. 88.0% at 140 anchors). This is con-
+sistent with the Platonic Representation Hypothesis:
+alignment quality reflects pretraining convergence
+on shared data statistics, not instruction-tuning ob-
+jectives. RLHF does not improve cross-architecture
+geometric compatibility.
+Cross-architecture probe transfer rises from 50.0%
+(chance) to 60.5% when evaluated with the expanded
+concept dataset (4.7 prompts per concept, averaged).
+The dataset was the bottleneck: with only 2 prompts
+per concept, 4,096-dimensional decision boundaries
+are fundamentally underdetermined.
+As a diagnostic, we compared Procrustes with
+Canonical Correlation Analysis (CCA), which iden-
+tifies maximally correlated linear subspaces rather
+than a single rotation. CCA achieves 100% top-1
+retrieval at 80 anchors in a 79-dimensional shared
+subspace, compared to 75.3% for Procrustes in the
+full 4,096-dimensional space. This confirms that the
+cross-architecture semantic correspondence is concen-
+trated in a low-rank subspace and that the Procrustes
+gap reflects alignment method limitations rather than
+fundamental geometric incompatibility. A 2-layer
+MLP (non-linear alignment) fails completely at all
+anchor counts due to catastrophic overfitting on≤140
+training pairs in 4,096 dimensions; testing whether a
+non-linear component exists in the cross-architecture
+transformation requires substantially larger anchor
+sets.
+8
+Figure 3:UMAP visualisation of SAE feature vectors; textual annotations indicate most/least displaced concepts.
+Figure 4:SAE feature cosine similarity distribution
+through text round-trip.
+3.5. Task-Level Evaluation
+Concept identification (165 tasks).Dense la-
+tent: 58.2%. Text-passage: 65.5% (chance: 25%).
+The 7.3pp gap is consistent across concept categories.
+Using prompt-averaged sender vectors, the dense la-
+tent channel rises to 62.4%, narrowing the gap to
+3.1pp.
+Within-concept representation variance provides a
+partial explanation for the latent channel’s disadvan-
+tage. Passage-elicited sender representations show
+substantial prompt dependence: mean pairwise co-
+sine similarity between different prompts for the same
+concept is 0.60 (Llama) to 0.53 (Mistral), compared
+to 1.0 for the deterministic bare-name text encoding.
+This variance is concept-intrinsic — the cross-model
+correlation of per-concept variance isr = 0.92—
+withabstractandpolysemousconcepts(e.g., “Speed”,
+“Compassion”) showing the highest variability and
+concrete concepts (e.g., “Heart”, “Chlorophyll”) the
+lowest. Sender variance correlates weakly with task
+failure across all channels (r≈ −0.16for latent,
+−0.11for text), indicating that the latent channel is
+modestly more sensitive to prompt-level noise. This
+is consistent with the prompt-averaging result: av-
+eraging over multiple sender prompts narrows the
+latent–text gap from 7.3pp to 3.1pp by cancelling
+prompt-specific activation components.
+Attribute and sense disambiguation (112
+tasks).Table 4 reports results across channels and
+task sub-types. The gap widens to∼10pp on richer
+tasks. SAE latent matches dense latent to within
+1pp — the sparse bottleneck does not itself degrade
+task performance; the cost is entirely attributable to
+Procrustes alignment quality.
+Cross-lingual concept identification (74 tasks,
+5 languages).Dense latent: 64.9%. Text-passage:
+63.5% (chance: 25%). This is the only tested regime
+in which the latent channel matches text (+1.4pp).
+9
+T able 4:Task-level evaluation on 112 attribute and
+sense disambiguation tasks.
+Channel Overall Attr. (n=52) Sense (n=60)
+Dense latent 67.0% 65.4% 68.3%
+SAE latent 67.9% 65.4% 70.0%
+Text-passage 76.8% 76.9% 76.7%
+Text-name 39.3% 50.0% 30.0%
+No-comm 25.9% 28.8% 23.3%
+The Procrustes geometry preserves language-agnostic
+semantic structure: the sender’s Llama representa-
+tion of “Herz” (German) maps to a region of Mistral’s
+activation space closer to the correct English concept
+than the raw cross-lingual text-passage baseline.
+Cross-lingual sense disambiguation (33 tasks).
+Dense latent: 51.5%, barely above the 25% chance
+baseline. Text-passage: 75.8% (−24.2pp). The la-
+tent channel fails at sense-level disambiguation across
+languages. The Procrustes mapping was fitted on
+English concept-level anchors and does not preserve
+fine-grained polysemy distinctions reliably. Text-
+name collapses to 27.3% on these tasks — the bare
+ambiguous token (e.g., “Avocat”) carries no sense —
+confirming that the task requires contextual informa-
+tion and the sense failure of the latent channel is a
+genuine deficit, not a task design artifact.
+3.6. Text Augmentation
+Augmenting the receiver’s text-passage representa-
+tion with Procrustes-mapped sender features pro-
+vides no reliable benefit. On English tasks, all four
+augmentation variants match the 76.8% text-passage
+baseline at lowαand degrade monotonically above
+α= 0.2. On cross-lingual tasks, text+dense and
+text+sae_all show a marginal +0.9pp atα= 1.0
+(one task flip out of 107 — not a reliable effect at
+this magnitude). The lost-feature variant actively re-
+duces performance: from 66.4% atα= 0.01to 57.0%
+at α= 1.0. This is the decisive result: the features
+destroyed by text serialisation, when re-introduced,
+act as noise. They are not the carriers of suppressed
+semantic signal; they are the carriers of surface form
+that is incompatible with the receiver’s downstream
+processing.
+3.7. Summary of Gates and Claims
+Table 5 summarises the outcome of every gate and
+claim.
+T able 5:Summary of experimental gates and claims.
+Claim / Gate Result Key Number
+Separability (§3.1) Confirmed 100% probe acc.
+SAE overlap (§3.1) Confirmed∆cos = +0.319
+Feature loss (§3.3) Characterised 88.3% destroyed
+Sparse channel (§3.2) Confirmed 99.4% vs 80.4%
+Cross-arch (§3.4) Confirmed 92% top-1
+Cross-arch probe transfer Passed 60.5%
+Cross-lingual concepts Passed +1.4pp over text
+Cross-lingual sense Failed−24.2pp
+Text augmentation Null 0pp benefit
+4. Discussion
+4.1. What We Found
+Representational convergence is real.Llama
+3.1 8B-Instruct and Mistral 7B develop activation
+geometries alignable by a simple orthogonal rotation,
+yielding 92% top-1 retrieval at 140 anchors against
+a 0.87% chance baseline. This is strong empirical
+support for the Platonic Representation Hypothe-
+sis: architectures with different tokenisers, attention
+structures, and training lineages converge toward
+compatible semantic geometry because they model
+the same distributional properties of language.
+SAE features quantify what text loses — and
+what is lost is not the semantics.Text seri-
+alisation performs catastrophic feature replacement
+(88% of contextual features replaced, Jaccard 5.8%,
+SAE cosine 0.187). But the augmentation experi-
+ment resolves the consequential question: the de-
+stroyed features are not the ones encoding concept-
+discriminative information. When re-injected, they
+degrade performance. The loss is structural — text
+cannot carry prompt-contextual and relational rep-
+resentations — but for concept-identification tasks,
+this structural loss does not cross the threshold of
+task relevance.
+The Procrustes tax is real but tractable.The
+consistent 3–10pp gap between the latent and text
+channels reflects current alignment quality, not a fun-
+damental geometric ceiling. Averaged sender vectors
+close much of the gap; better alignment methods
+— CCA, learned linear projections, or nonlinear ap-
+proaches — would likely reduce it further.
+4.2. The Honest Negative
+On every task type tested, the text channel matches
+or exceeds the latent channel. The cross-lingual par-
+10
+ity result (+1.4pp) is the closest the latent channel
+gets to outperforming text. Text augmentation con-
+firms this from the opposite direction: adding latent
+information to an already-text-capable receiver is
+useless at best.
+This is informative precisely because the experi-
+mentalinfrastructure issound. Thenull result cannot
+be attributed to poor alignment (92% retrieval), poor
+channel fidelity (99.4% SAE accuracy), or insufficient
+data (probe transfer rises from 50% to 60.5% with
+more prompts per concept). The limitation is that
+all tested tasks are fully text-expressible. A receiver
+with access to a rich text passage already holds all
+concept-discriminating signal that the current task
+format requires.
+4.3. When Would Latent Channels Win?
+Three conditions could in principle yield a practi-
+cal latent advantage, none of which are met by the
+current experiments:
+1. Tasks requiring information that text can-
+not express.If a model’s latent representations
+encode relational or structural knowledge that
+resists faithful serialisation to a token sequence,
+the text channel would face a performance ceil-
+ing well below 90–100%. No current task type
+probes this.
+2. Cross-modal communication with a pure
+vision model.A model trained exclusively
+on images cannot re-encode concepts from text
+descriptions — the “text channel” path simply
+does not exist. Any geometric alignment must
+be emergent, not engineered.
+3. Bandwidth-constrained or
+interpretability-constrained settings.
+The SAE channel’s 28×compression over
+dense — at 99.4% fidelity and with named,
+interpretable feature activations — has practical
+value independent of whether it exceeds text
+accuracy.
+4.4. Limitations
+Both sender and receiver are 8B-parameter models;
+larger models may develop richer latent structures
+in which contextual representations encode a greater
+proportion of task-relevant information. There are
+only very few pretrained SAEs available for such
+larger models, so that for this initial investigation we
+chose to restrict ourselves to small models.
+Also, orthogonal Procrustes is not the optimal
+linear alignment method for the cross-architecture
+setting: CCA retrieval experiments show that an
+anisotropic linear alignment achieves near-perfect
+concept retrieval (§3.4), confirming that the cross-
+architecture correspondence is concentrated in a low-
+rank subspace. However, our augmentation results
+(§3.6) suggest that even perfect alignment would not
+cause the latent channel to exceed text on concept-
+identification tasks: the information text loses is
+surface form, not task-relevant semantics. Improved
+alignment would likely close the 3–10pp gap without
+creating a latent advantage on current task types.
+Lastly, the prompt-variance analysis is based on
+only 2–4 prompts per concept; finer-grained variance
+estimates would require 10+ prompts per concept.
+The dataset also only covers 165 general-knowledge
+English concepts; domain-specific vocabularies may
+have different feature survival profiles. Finally, all
+task types are designed with text-expressible answers
+— which is precisely the condition under which the
+text channel performs best.
+Structural injection barriers in instruction–
+tuned models.Pilot experiments with Gemma 3
+27B-IT reveal that latent injection into instruction-
+tuned models with structured prompt templates faces
+architectural obstacles beyond geometric alignment.
+The BOS token position acts as an attention sink,
+accumulating a hidden-state norm 35×larger than
+regular positions by layer 20. Injecting sender vectors
+at this position produces≤3.3% accuracy regardless
+of blending coefficient, because the sender signal con-
+stitutes <7% of the blended vector’s energy even
+at α= 0.70. Norm-rescaling recovers partial signal
+(10%) but remains far below the only viable alterna-
+tive: last-token injection at layer 20, which achieves
+20% on an 85-concept evaluation — above the no-
+communication baseline (McNemarp <0.001) but
+not significantly above chance. More fundamentally,
+embedding-level prepend of source tokens before the
+chat template markers fails completely (3.3%), de-
+spite the same tokens achieving 96.7% when placed
+withinthe template. Instruction-tuning couples se-
+mantic extraction tightly to template structure; to-
+kens outside the expected format are treated as po-
+sitional noise. Any model with structured prompt
+templates — which includes all current instruction-
+tuned and chat-finetuned architectures — will have
+analogous structural anchor positions where direct
+injection fails. Practical deployment of latent injec-
+tion in multi-agent systems must account for these
+template-level constraints.
+11
+5. Future Work
+5.1. Deeper-Than-Language Knowledge
+The central open question this paper cannot answer
+is whether a language model encodes knowledge in
+its latent space that it cannot faithfully transmit
+through text. We conducted preliminary Chain-of-
+Thought (CoT) experiments to probe this. On BIG-
+Bench Hard logical reasoning tasks, we compared
+task accuracy when a sender communicates via its
+pre-articulation hidden state versus the full text CoT
+trace.
+On a 27B-parameter model (Gemma 3), CoT im-
+proves accuracy from 70.7% (direct) to 87.2% (with
+reasoning), identifying 157 “reverse-gap” tasks where
+CoT succeeds but direct inference fails. Injecting the
+sender’s pre-answer hidden state into the receiver
+recovers 33.1% accuracy on these tasks — well above
+the 0.6% no-communication baseline, confirming that
+latent states carry reasoning-relevant signal. How-
+ever, the text CoT channel achieves 96.2% on the
+same tasks, a 63pp advantage over latent injection.
+These results illustrate both the promise and the
+difficulty: latent states do encode reasoning informa-
+tion that is absent from the direct answer, but the
+text serialisation of that reasoning is far more effec-
+tive than the latent channel at conveying it. Demon-
+strating a latent advantage on reasoning tasks would
+require either tasks where CoT serialisation itself
+loses information, or substantially improved injection
+methods. Both directions require larger models and
+additional compute beyond our current experimental
+setup.
+5.2. Cross-Modal Medical Alignment
+A more immediate and equally rigorous test of the
+Platonic hypothesis is cross-modal alignment: does
+a pure vision model and a pure language model de-
+velop compatible representations of the same medical
+concepts?
+The critical constraint is that the vision model
+must be trained exclusively on image supervision
+— no text encoder, no contrastive text-image loss,
+no language pretraining. Shared geometry in such
+a system cannot be attributed to joint training; it
+would be purely emergent. We identify MedicalMulti-
+taskModeling (M3 / UMedPT; [7]) as the candidate:
+a foundational medical imaging framework trained
+via supervised multi-task learning on segmentation,
+classification, and detection across diverse biomedical
+imaging modalities, with no text objective.
+The alignment protocol follows the cross-
+architecture Procrustes method (§2.6), adapted for
+the dimensionality mismatch between the vision en-
+coder’s feature space and the language model’s resid-
+ual stream. Orthogonal Procrustes requires equal-
+dimensional spaces; CCA or learned linear projec-
+tions will be required. Anchor concepts must be
+represented by both a canonical imaging example
+and a text description. A positive retrieval result —
+given a pathology image, retrieve the correct text
+concept — would be strong evidence for cross-modal
+representational convergence: two models that have
+never shared a modality developing aligned semantic
+geometries because they model the same underlying
+domain structure.
+6. Conclusion
+We have constructed and evaluated the first sys-
+tematic measurement framework for latent versus
+text communication between large language model
+agents. Three communication channels — dense la-
+tent, SAE-sparse, and text — were compared across
+representation-level fidelity, cross-architecture align-
+ment quality, and task-level concept discrimination.
+Representational convergence between Llama 3.1
+8B-Instruct and Mistral 7B is unambiguously con-
+firmed: Procrustes alignment achieves 92% top-1 con-
+cept retrieval, far above the 0.87% chance baseline.
+SAE feature analysis reveals that text serialisation
+performs catastrophic feature replacement (88% of
+features destroyed), but augmentation experiments
+establish that these lost features carry surface-form
+information rather than concept-discriminative se-
+mantics. On all tested task types, text communica-
+tion is sufficient — the latent channel matches but
+does not exceed it.
+The open question is not whether latent communi-
+cation works, but when it is necessary. The current
+experiments establish what text-expressible tasks
+can reveal: convergence is real, the loss is structural
+but task-irrelevant for current benchmarks, and the
+Procrustes tax is tractable. The two frontiers that
+define the next phase of inquiry are tasks probing
+knowledge genuinely beyond textual expressibility,
+and cross-modal alignment with pure vision models
+— the latter being both practically motivated as a
+clinical tool and a rigorous test of representational
+convergence in its strongest cross-modal form.
+References
+[1] M. Huh, B. Cheung, T. Wang, and P. Isola. The
+Platonic Representation Hypothesis. InICML
+2024, 2024.
+12
+[2] Y. Bansal, P. Nakkiran, and B. Barak. Revisit-
+ing model similarity. InNeurIPS 2021, 2021.
+[3] K. Lenc and A. Vedaldi. Understanding image
+representations by measuring their equivariance
+and equivalence. InCVPR 2015, 2015.
+[4] T. Bricken, A. Templeton, J. Marcus, et al. To-
+wards monosemanticity: Decomposing language
+models with dictionary learning.Transformer
+Circuits Thread, 2023.
+[5] H. Cunningham, A. Ewart, L. Riggs, R. Huben,
+and L. Sharkey. Sparse autoencoders find
+highly interpretable features in language models.
+arXiv:2309.08600, 2023.
+[6] A. Conneau, S. Wu, H. Li, L. Zettlemoyer, and
+V. Stoyanov. Emerging cross-lingual structure
+in pretrained language models. InACL 2020,
+2020.
+[7] R. Schäfer, T. Nicke, H. Höfener, A. Lange,
+D. Merhof, F. Feuerhake, V. Schulz, J. Lotz,
+and F. Kiessling. Overcoming data scarcity in
+biomedical imaging with a foundational multi-
+task model.Nature Computational Science,
+2024.
+[8] M. Cherti, R. Beaumont, R. Wightman, M.
+Wortsman, G. Ilharco, C. Gordon, C. Schuh-
+mann, L. Schmidt, and J. Jitsev. Repro-
+ducible scaling laws for contrastive language-
+image learning. InCVPR 2023, 2023.
+[9] A. Gromov, K. Tirumala, H. Shapourian, P. Glo-
+rioso, and D. Roberts. The unreasonable ineffec-
+tiveness of the deeper layers.arXiv:2403.17887,
+2024.
+[10] S. L. Smith, D. H. P. Turban, S. Hamblin, and N.
+Y. Hammerla. Offline bilingual word vectors, or-
+thogonal transformations and the inverted soft-
+max. InICLR 2017, 2017.
+[11] A. Conneau, G. Lample, M. Ranzato, L. De-
+noyer, and H. Jégou. Word translation without
+parallel data. InICLR 2018, 2018.
+[12] N. Elhage, T. Hume, C. Olsson, N. Schiefer, et
+al. Toy models of superposition.Transformer
+Circuits Thread, 2022.
+[13] A. Templeton, T. Conerly, J. Marcus, J. Lind-
+sey, et al. Scaling monosemanticity: Extracting
+interpretable features from Claude 3 Sonnet.
+Transformer Circuits Thread, 2024.
+[14] T. Pires, E. Schlinger, and D. Garrette. How
+multilingual is multilingual BERT? InACL
+2019, 2019.
+[15] S. Kottur, J. M. F. Moura, S. Lee, and D. Batra.
+Natural language does not emerge ‘naturally’ in
+multi-agent dialog. InEMNLP 2017, 2017.
+[16] B. Lester, R. Al-Rfou, and N. Constant. The
+power of scale for parameter-efficient prompt
+tuning. InEMNLP 2021, 2021.
+13

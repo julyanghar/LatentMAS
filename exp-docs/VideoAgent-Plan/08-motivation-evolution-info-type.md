@@ -1,7 +1,7 @@
 # 08 · Motivation 演化史与"信息类型 × 载体"假设的兴亡
 
 > 2026-08-07 晚立稿，**2026-08-08 P2 收官后全面更新**。记录实验对项目立论的冲击与重构，作为论文 story 的底稿。
-> 配套：[07 双分支手术图](07-two-branch-surgery-map.md) · [10 全臂图鉴](10-all-arms-atlas-explained.md) · 主战役 report `/home/yilin/modify-code-runs/videoagent-five-arms/review-report.md` · 探针 `/home/yilin/modify-code-runs/map-deficit-probe/probe-results-interim.md` · P2 蓝图 `/home/yilin/modify-code-runs/p2-info-media/blueprint.md` · 30B 战役 `/home/yilin/modify-code-runs/pixel-dividend-30b/blueprint.md`
+> 配套：[10 全臂图鉴](10-all-arms-atlas-explained.md) · 主战役 report `/home/yilin/modify-code-runs/videoagent-five-arms/review-report.md` · 探针 `/home/yilin/modify-code-runs/map-deficit-probe/probe-results-interim.md` · P2 蓝图 `/home/yilin/modify-code-runs/p2-info-media/blueprint.md` · 30B 战役 `/home/yilin/modify-code-runs/pixel-dividend-30b/blueprint.md`
 
 ---
 
