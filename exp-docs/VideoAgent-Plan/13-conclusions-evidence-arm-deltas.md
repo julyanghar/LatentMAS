@@ -87,7 +87,24 @@ D₃₀-S1=60.0（全场文字最高，摘要原料=LaViLa）→ 跨世界最紧
 
 ---
 
-## 第三部分：核验路径
+## 第三部分：机制分析——为什么概率/latent 全阴（熵账本，2026-08-09）
+
+对两本书全部 top-64 npz 抽 50 视频（8.4万/9.8万 token 位置）实测：
+
+| | 8B 书 | 30B 书 |
+|---|---|---|
+| 每位置熵（中位） | **0.14 bit** | 0.26 bit |
+| p1（第一候选概率，中位） | 0.98 | 0.96 |
+| p1>0.99 位置占比 | 47% | 41% |
+| 有效候选数 2^熵（中位） | 1.10 | 1.20 |
+
+机制链：①**发端无话可说**——分布≈独苗，Σp·E≈0.98×one-hot，整句 caption 只多带 ~2 bit（约一个是/否）；
+②高熵位置（p90≈1.6-2bit，真实歧义）传了也没分（P2-1 +1.6 n.s.）——**收端听不懂**（Greedy Pitfall：接收方按最近 token 读软输入）；
+③CIPHER 崩塌同源：每步喂回≈硬 argmax+2% 糊化噪声，累积入复读吸引子（587/587 顶满的机制解释）；
+④latent 高扰动净零：对齐向量的流形外分量对只见过 token 嵌入的输入接口=扰动非信息（翻题 140 净 0）。
+**结论：免训练软通道死因=发端熵枯竭 × 收端流形失聪，两头堵——这正是 adapter 必须"训练收端"的机制论证。**
+
+## 第三部分b：核验路径
 
 - 30B 各格原始数据：`/data/yilin/video-latent-collab/results/map-channel/*.{a30,t30s,d30s,c30s,d30,ab1,ab4,ab2,c30s1}.jsonl`；判分留痕 `/home/yilin/modify-code-runs/pixel-dividend-30b/blueprint.md`
 - P2 四对比：`/home/yilin/modify-code-runs/p2-info-media/blueprint.md`（含 run-2-p2s.log）
